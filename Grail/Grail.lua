@@ -1127,14 +1127,25 @@ experimental = false,	-- currently this implementation does not reduce memory si
  							[1530] = true, -- Valley of Eternal Blossoms 8.3
 							[1595] = true, -- Nyalotha 8.3
 							-- Shadowlands
+							[1360] = true, -- IceCrown Citadel 9.0 intro
 							[1409] = true, -- Exiles Reach 9.0
 							[1525] = true, -- Revendreth 9.0
 							[1533] = true, -- Bastion 9.0
 							[1536] = true, -- Maldraxxus 9.0
+							[1543] = true, -- The Maw 9.0 , during 57690, rescuing prince renathal
+							[1550] = true, -- Thorgast, The Maw,   quest 57693
 							[1565] = true, -- Ardenweald 9.0
+							[1648] = true, -- The Maw (intro version) 9.0
+							[1666] = true, -- Necrotic Wake 9.0 , (dungeon)
 							[1670] = true, -- Oribos 9.0 , TODO: so far no chests and rares
 							[1671] = true, -- Oribos 9.0, Part 2 , TODO: so far no chests and rares 
+							[1681] = true, -- IceCrown Citadel 9.0 intro
+							[1688] = true, -- Hof der Ernter 9.0 , during quest 58086
+							[1693] = true, -- Spire Of Ascension 9.0, (dungeon), has quests, hidden and visible
 							[1707] = true, -- Bastion: Elyssian Keep 9.0 , TODO: so far no chests and rares
+							[1755] = true, -- Schloss Nathria 9.0 , During Quest 57159
+							[1765] = true, -- Thorgast 9.0 , level 1
+							[1911] = true, -- Thorgast 9.0 , quest 61099
 							[1912] = true, -- Runecarver, TODO: so far no chests and rares
 							}
 						self.quest.name = {
@@ -8635,11 +8646,14 @@ end
 			if nil ~= talentTreeIds then
 				for _, talentTreeId in pairs(talentTreeIds) do
 					local treeInfo = C_Garrison.GetTalentTreeInfo(talentTreeId)
+				--	print(talentTreeId)
 					if nil ~= treeInfo then
 						local talents = treeInfo.talents
 						if nil ~= talents then
 							for _, talentInfo in pairs(talents) do
 								if talentInfo.researched and talentId == tonumber(talentInfo.id) then
+									--print(talentInfo.id)
+									--print(treeInfo.title, talentInfo.name)
 									return true, treeInfo.title, talentInfo.name
 								end
 							end
