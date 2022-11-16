@@ -1220,6 +1220,9 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							[1796] = true, -- Thorgast 9.0 ?2? Kaltherzinterstitia Ebene 5
 							[1630] = true, -- Thorgast 9.0 ?2? Kaltherzinterstitia Ebene 6
 							[1970] = true, -- Zereth Mortis
+							[2109] = true, -- Evoker 1 (Höhle)
+							[2118] = true, -- Evoker 2 (Forbidden Reach)
+							[2022] = true, -- Dragon Isles: Küste des Erwachsens
 
 							}
 						self.quest.name = {
