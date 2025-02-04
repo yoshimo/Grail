@@ -1370,6 +1370,7 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							[1632] = true, -- Thorgast 9.0 ?2? Kaltherzinterstitia Ebene 1
 							[1796] = true, -- Thorgast 9.0 ?2? Kaltherzinterstitia Ebene 5
 							[1630] = true, -- Thorgast 9.0 ?2? Kaltherzinterstitia Ebene 6
+							[1961] = true, -- Korthia 9.1
 							[1970] = true, -- Zereth Mortis
 							-- Dragon Flight
 							[2109] = true, -- Forbidden Reach: Creche (Evoker)
