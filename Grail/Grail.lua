@@ -1337,6 +1337,17 @@ experimental = false,	-- currently this implementation does not reduce memory si
  							[1530] = true, -- Valley of Eternal Blossoms 8.3
 							[1537] = true, -- Alterac Valley (Korraks Revenge)
 							[1595] = true, -- Nyalotha 8.3
+							[1580] = true, -- Nyalotha RAID EINGANG FURORION
+							[1581] = true, -- Nyalotha RAID Annex der Prophezeiung (lvl 2)(Ma'ut)
+							[1582] = true, -- Nyalotha RAID Ny'alotha (lvl 3)
+							[1590] = true, -- Nyalotha RAID Der Schwarm (lvl 4)
+							[1591] = true, -- Nyalotha RAID Terasse der Verwüstung (lvl 5)
+							[1593] = true, -- Nyalotha RAID Zwielichtlandung (lvl 7)
+							[1594] = true, -- Nyalotha RAID Schlund des Gorma (lvl 8)
+							[1595] = true, -- Nyalotha RAID Höhle des Verfalls (lvl 9)
+							[1596] = true, -- Nyalotha RAID Kammer der Wiedergeburt (lvl 10)
+							[1597] = true, -- Nyalotha RAID Kern der Unendlichen Wahrheiten (lvl 10)
+
 							-- Shadowlands
 							[1360] = true, -- IceCrown Citadel 9.0 intro
 							[1409] = true, -- Exiles Reach 9.0
@@ -1391,7 +1402,12 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							[2124] = true, -- Dragon Isles: Gewölbe der Inkarnationen: Urzeitliche Konvergenz
 							[2151] = true, -- Forbidden Reach (10.0.7)
 							[2133] = true, -- Zaralek Cavern (10.1)
+							[2165] = true, -- Der Durchgang /Zaralek Cavern (10.1)
+							[2166] = true, -- Aberrus, the Shadowed Crucible (Raid) (10.1)
+							[2171] = true, -- Aberrus, the Shadowed Crucible (Raid) (quest-edition)(10.1)
+							[2184] = true, -- Zaralek Cavern Tiefenschindernest (10.1)
 							[2200] = true, -- Emerald Dream (10.2)
+
 							-- The War Within
 							[2255] = true, -- Azj-Kahet
 							[2256] = true, -- Azj-Kahet - Lower
