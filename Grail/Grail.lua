@@ -1239,7 +1239,9 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							[185] = true, -- Hyjal
 							[198] = true, -- Hyjal
 							[210] = true, -- Stranglethorn Cape
+							[217] = true, -- Ruins of Gilneas
 							[249] = true, -- Uldum, Cataclysm
+							[310] = true, -- Silverpine Forest - Shadowfang Keep (Dungeon)
 							[327] = true, -- Ahn'Qiraj: The Fallen Kingdom
 							[371] = true, -- Jade Forest, MoP
 							[376] = true, -- Valley of the Four Winds, MoP
@@ -1309,7 +1311,8 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							[798] = true, -- The Arcway, Suramar, Scenario edition 43567
 							[790] = true,
 							[804] = true, -- Scarlet Monastery (Dungeon)
-							[830] = true,
+							[826] = true, -- Mage Tower Legion (windwalker) - Höhle der Bluttotems
+							[830] = true, -- Vindicaar: UpperDeck
 							[850] = true, -- Tomb Of Sargeras, Legion
 							[851] = true, -- Tomb Of Sargeras, Legion
 							[852] = true, -- Tomb Of Sargeras, Legion
@@ -1384,6 +1387,7 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							[1961] = true, -- Korthia 9.1
 							[1970] = true, -- Zereth Mortis
 							-- Dragon Flight
+							[940]  = true, -- The Vindikaar . Oberdeck(quest:77408)
 							[2109] = true, -- Forbidden Reach: Creche (Evoker)
 							[2118] = true, -- Forbidden Reach (Evoker)
 							[2022] = true, -- Dragon Isles: The Waking Shores
@@ -1405,8 +1409,12 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							[2165] = true, -- Der Durchgang /Zaralek Cavern (10.1)
 							[2166] = true, -- Aberrus, the Shadowed Crucible (Raid) (10.1)
 							[2171] = true, -- Aberrus, the Shadowed Crucible (Raid) (quest-edition)(10.1)
+							[2173] = true, -- Aberrus, the Shadowed Crucible (Raid) Neltharions Sanctum (quest-edition)(10.1)
+							[2174] = true, -- Aberrus, the Shadowed Crucible (Raid) Schneide des Vergessens (quest-edition)(10.1)
 							[2184] = true, -- Zaralek Cavern Tiefenschindernest (10.1)
 							[2200] = true, -- Emerald Dream (10.2)
+							[2239] = true, -- Amirdrassil (10.2)
+							[2254] = true, -- Emerald Dream --Hügel der Träume(10.2)
 
 							-- The War Within
 							[2255] = true, -- Azj-Kahet
@@ -1422,6 +1430,7 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							[2322] = true, -- Hall of Awakening (earthen-race)
 							[2362] = true, -- Blackrock Depths (Raid)
 							[2363] = true, -- Blackrock Depths - Gefängnisblock(Raid)
+							[2346] = true, -- Undermine
 							}
 
 						self.quest.name[51570]=Grail:_GetMapNameByID(862)	-- Zuldazar
@@ -4237,7 +4246,7 @@ end,
 			self.invalidateControl[self.invalidateGroupCurrentWorldQuests] = {}
 --			self.availableWorldQuests = {}
 
-			local mapIdsForWorldQuests = { 14, 62, 625, 627, 630, 634, 641, 646, 650, 680, 790, 830, 882, 885, 862, 863, 864, 895, 896, 942, 1161, 1355, 1462, 1525, 1527, 1530, 1533, 1536, 1543, 1565, 1970, 2022, 2023, 2024, 2025, 2085, 2112, 2133, 2151, 2200, 2213, 2214 ,2215, 2248, 2255, 2256}
+			local mapIdsForWorldQuests = { 14, 62, 625, 627, 630, 634, 641, 646, 650, 680, 790, 830, 882, 885, 862, 863, 864, 895, 896, 942, 1161, 1355, 1462, 1525, 1527, 1530, 1533, 1536, 1543, 1565, 1970, 2022, 2023, 2024, 2025, 2085, 2112, 2133, 2151, 2200, 2213, 2214 ,2215, 2248, 2255, 2256, 2346}
 
 			for _, mapId in pairs(mapIdsForWorldQuests) do
 				self:_PrepareWorldQuestSelfNPCs(mapId)
