@@ -1431,7 +1431,50 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							[2362] = true, -- Blackrock Depths (Raid)
 							[2363] = true, -- Blackrock Depths - Gefängnisblock(Raid)
 							[2346] = true, -- Undermine
-							}
+
+							-- TWW Dungeons (S2)
+							[2315] = true, -- Isle of Dorn >Die Brutstätte: Der Brustättenlandeplatz (lvl1)
+							[2316] = true, -- Isle of Dorn >Die Brutstätte: Sturmhorst (lvl2)
+							[2317] = true, -- Isle of Dorn >Die Brutstätte: Sturmkrähenbrutstätte (lvl3)
+							[2318] = true, -- Isle of Dorn >Die Brutstätte: Sturmreiterkaserne (lvl4)
+							[2319] = true, -- Isle of Dorn >Die Brutstätte: Einstürzende Sturmhalle (lvl5)
+							[2320] = true, -- Isle of Dorn >Die Brutstätte: Verlassene Minen (lvl6)
+							[2303] = true, -- Khaz>Schallende Tiefen>Dunkelflammenspalt
+							[2335] = true, -- Isle of Dorn > Metbrauerei Glutbräu
+							[2308] = true, -- Heilsturz> Priorität der Heligen Flamme: Geweihter Boden (lvl1)
+							[2309] = true, -- Heilsturz> Priorität der Heligen Flamme: Priorat der Heiligen Flamme (lvl2)
+							[2387] = true, -- Schallende Tiefen > Operation: Schleuse: Die Wasserwerke (lvl1)
+							[2388] = true, -- Schallende Tiefen > Operation: Schleuse: Das R.A.S.T.E.R. (lvl2)
+
+							[1683] = true, -- Maldraxxus > Theater der Schmerzen: Theater der Schmerzen (lvl1)
+							[1684] = true, -- Maldraxxus > Theater der Schmerzen: Kammer der Eroberung (lvl2)
+							[1685] = true, -- Maldraxxus > Theater der Schmerzen: Altäre der Agonie (lvl3)
+							[1686] = true, -- Maldraxxus > Theater der Schmerzen: Obere Tunnel des Gemetzels (lv4)
+							[1687] = true, -- Maldraxxus > Theater der Schmerzen: Untere Tunnel des Gemetzels (lv4)
+
+							[1490] = true, -- Kul Tiras >Operation: Mechagon: Mechagon (lvl1)
+							[1491] = true, -- Kul Tiras >Operation: Mechagon: Das Robodrom (lvl2)
+							[1493] = true, -- Kul Tiras >Operation: Mechagon: Abflussrohre (lvl3)
+							[1494] = true, -- Kul Tiras >Operation: Mechagon: Die Unterhalde (lvl4)
+							[1497] = true, -- Kul Tiras >Operation: Mechagon: Stadt Mechagon (lvl5)
+							[1010] = true, -- Mahlstrom> Kezan:Das RIESENFLÖZ!!
+
+							-- TWW Raids:
+							[2292] = true, --Azj-Kahet> Palast der Nerub'ar (11.0): Großes Bollwerk (lvl1)
+							[2291] = true, --Azj-Kahet> Palast der Nerub'ar (11.0): Die Gärende Grube (lvl2)
+							[2293] = true, --Azj-Kahet> Palast der Nerub'ar (11.0): Terasse der Majestät (lvl3)
+							[2294] = true, --Azj-Kahet> Palast der Nerub'ar (11.0): Der Narthex (lvl4)
+							[2295] = true, --Azj-Kahet> Palast der Nerub'ar (11.0): Die Krone der Schatten (lvl5)
+							[2296] = true, --Azj-Kahet> Palast der Nerub'ar (11.0): Die Krone der Schatten - Oberer Bereich (lvl6)
+
+							[2406] = true, --Schallende Tiefen> Befreiung von Lorenhall (11.1):Lorenhall (lvl1)
+							[2428] = true, --Schallende Tiefen> Befreiung von Lorenhall (11.1):Forschung und Zerstörung (lvl2)
+							[2407] = true, --Schallende Tiefen> Befreiung von Lorenhall (11.1):Das Garbagio (lvl3)
+							[2408] = true, --Schallende Tiefen> Befreiung von Lorenhall (11.1):Das Glückliche Herz (lvl4)
+							[2411] = true, --Schallende Tiefen> Befreiung von Lorenhall (11.1):Der Pikturm (lvl5)
+							[2409] = true, --Schallende Tiefen> Befreiung von Lorenhall (11.1):Das Haus des Chroms (lvl6)
+
+						}
 
 						self.quest.name[51570]=Grail:_GetMapNameByID(862)	-- Zuldazar
 						self.quest.name[51571]=Grail:_GetMapNameByID(863)	-- Nazmir
