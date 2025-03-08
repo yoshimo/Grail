@@ -1459,6 +1459,15 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							[1497] = true, -- Kul Tiras >Operation: Mechagon: Stadt Mechagon (lvl5)
 							[1010] = true, -- Mahlstrom> Kezan:Das RIESENFLÖZ!!
 
+							-- TWW: Delves
+							[2423] = true, -- Kaz Algar>Schallende Tiefen>Lorenhall>Seitenstraßenschleuse (Lvl1): Eingang
+							[2422] = true, -- Kaz Algar>Schallende Tiefen>Lorenhall>Seitenstraßenschleuse (Lvl2): Die Hohen Decks
+							[2421] = true, -- Kaz Algar>Schallende Tiefen>Lorenhall>Seitenstraßenschleuse (Lvl3): Die Niedrigen Decks
+							[2420] = true, -- Kaz Algar>Schallende Tiefen>Lorenhall>Seitenstraßenschleuse (Lvl4): Die Grube
+
+							[2302] = true, -- Kaz Algar>Schallende Tiefen> Terrorschacht
+
+
 							-- TWW Raids:
 							[2292] = true, --Azj-Kahet> Palast der Nerub'ar (11.0): Großes Bollwerk (lvl1)
 							[2291] = true, --Azj-Kahet> Palast der Nerub'ar (11.0): Die Gärende Grube (lvl2)
