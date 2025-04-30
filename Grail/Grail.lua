@@ -1213,21 +1213,36 @@ experimental = false,	-- currently this implementation does not reduce memory si
 						self.zonesForLootingTreasure = {
 							[1]   = true, -- Durotar
 							[14]  = true, -- Arathi
+							[17]  = true, -- Blasted Lands
+							[25]  = true, -- Hillsbrad Foothils
+							[26]  = true, -- The Hinterlands
 							[37]  = true, -- Elwynn Forest
 							[42]  = true, -- Deadwind Pass
 							[46]  = true, -- Catacombs of Karazhan (Warlock Legion Artifact)
 							[47]  = true, -- Duskwood
 							[49]  = true, -- Redrige Mountains
 							[62]  = true,
+							[64]  = true, -- Thousand Needles
+							[69]  = true, -- Felwood
 							[71]  = true, -- Tanaris
+							[77]  = true, -- Ashenvale
 							[80]  = true, -- Moonglade
 							[81]  = true, -- Silithus
 							[85]  = true, -- Ogrimmar
+							[107] = true, -- Nagrand
 							[114] = true, -- Borean Tundra, WotLK
+							[115] = true, -- Dragonblight, WotLK
 							[116] = true, -- Grizzly Hills, WotLK
+							[119] = true, -- Sholazar Basin, WotLK
+							[121] = true, -- Zul'Drak, WotLK
+							[170] = true, -- Hrothgar's Landing, WotLK
 							[185] = true, -- Hyjal
+							[198] = true, -- Hyjal
 							[210] = true, -- Stranglethorn Cape
+							[217] = true, -- Ruins of Gilneas
 							[249] = true, -- Uldum, Cataclysm
+							[310] = true, -- Silverpine Forest - Shadowfang Keep (Dungeon)
+							[327] = true, -- Ahn'Qiraj: The Fallen Kingdom
 							[371] = true, -- Jade Forest, MoP
 							[376] = true, -- Valley of the Four Winds, MoP
 							[378] = true, -- Wandering Isle, MoP
@@ -1237,13 +1252,13 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							[429] = true, -- Temple of the Jade Serpent, MoP
 							[433] = true, -- The Veiled Stairs, MoP
 							[439] = true, -- Trueshot Lodge, Highmountain , Hunter Order Hall, Legion
-							[525] = true,
+							[525] = true, -- Frostfire Ridge, WoD
 							[534] = true,
-							[535] = true,
+							[535] = true, -- Talador, WoD
 							[539] = true,
-							[542] = true,
+							[542] = true, -- Spires of Arrak, WoD
 							[543] = true,
-							[550] = true,
+							[550] = true, -- Nagrand, WoD
 							[554] = true, -- Timeless Isle, MoP
 							[619] = true, -- Broken Isles, Legion
 							[625] = true,
@@ -1262,10 +1277,12 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							[677] = true,
 							[680] = true, -- Suramar, Legion
 							[682] = true, -- Devil Soul Bastion, Suramar , Legion
+							[683] = true, -- Das Arkusgewölbe, Suramar , Legion
 							[684] = true, -- The Epicenter - Temple of Fal'adora, Suramar, Legion
 							[685] = true, -- The Epicenter - Tunnel of Falanaar, Suramar, Legion
 							[686] = true, -- Elor'shan ,Suramar, Legion
 							[688] = true, -- Leystation Anora, Suramar, Legion
+							[690] = true, -- Leystation Aethenar, Suramar, Legion
 							[692] = true, -- Withered Army Training - Tunnel of Falanaar, Suramar, Legion
 							[693] = true, -- Withered Army Training - Falanaar, Suramar, Legion
 							[704] = true, -- Halls of Valor, Stormheim, Legion
@@ -1273,7 +1290,9 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							[714] = true, -- Niskara, DK Blood Artifact , Legion
 							[715] = true, -- Emerald Dreamway, Druid Artifact quest, Legion
 							[716] = true, -- Skywall, Monk artifact campaign
+							[714] = true, -- Dreadscar Rift, Summoning Area -- Warlock Legion Campaign
 							[718] = true, -- Dreadscar Rift -- Warlock Legion Campaign
+							[735] = true, -- Hall of the Guardians, Mage Order Hall, Legion
 							[740] = true, -- Shadowblood Citadel - highest level (rogue artifact campaign)
 							[745] = true, -- Ulduar, Spark of Imagination (hunter artifact campaign)
 							[747] = true, -- Dreamgrove , Druid Order Hall, Legion
@@ -1291,7 +1310,16 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							[775] = true, -- Battle for Exodar, Legion
 							[798] = true, -- The Arcway, Suramar, Scenario edition 43567
 							[790] = true,
-							[830] = true,
+							[804] = true, -- Scarlet Monastery (Dungeon)
+							[826] = true, -- Mage Tower Legion (windwalker) - Höhle der Bluttotems
+							[830] = true, -- Vindicaar: UpperDeck
+							[850] = true, -- Tomb Of Sargeras, Legion
+							[851] = true, -- Tomb Of Sargeras, Legion
+							[852] = true, -- Tomb Of Sargeras, Legion
+							[853] = true, -- Tomb Of Sargeras - Maiden of Vigilance , Legion
+							[854] = true, -- Tomb Of Sargeras - Chamber of the Avatar , Legion
+							[855] = true, -- Tomb Of Sargeras - Felstorm Rift, Legion
+							[856] = true, -- Tomb Of Sargeras - Whirling Nether, Legion
 							[882] = true, -- Eredath
 							[885] = true,
 							-- the following are the BfA maps (the three in Zandalar and three in Kul Tiras)
@@ -1310,7 +1338,19 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							[1470] = true, -- Horrific Vision of Stormwind 8.3
 							[1527] = true, -- Uldum 8.3
  							[1530] = true, -- Valley of Eternal Blossoms 8.3
+							[1537] = true, -- Alterac Valley (Korraks Revenge)
 							[1595] = true, -- Nyalotha 8.3
+							[1580] = true, -- Nyalotha RAID EINGANG FURORION
+							[1581] = true, -- Nyalotha RAID Annex der Prophezeiung (lvl 2)(Ma'ut)
+							[1582] = true, -- Nyalotha RAID Ny'alotha (lvl 3)
+							[1590] = true, -- Nyalotha RAID Der Schwarm (lvl 4)
+							[1591] = true, -- Nyalotha RAID Terasse der Verwüstung (lvl 5)
+							[1593] = true, -- Nyalotha RAID Zwielichtlandung (lvl 7)
+							[1594] = true, -- Nyalotha RAID Schlund des Gorma (lvl 8)
+							[1595] = true, -- Nyalotha RAID Höhle des Verfalls (lvl 9)
+							[1596] = true, -- Nyalotha RAID Kammer der Wiedergeburt (lvl 10)
+							[1597] = true, -- Nyalotha RAID Kern der Unendlichen Wahrheiten (lvl 10)
+
 							-- Shadowlands
 							[1360] = true, -- IceCrown Citadel 9.0 intro
 							[1409] = true, -- Exiles Reach 9.0
@@ -1344,8 +1384,10 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							[1632] = true, -- Thorgast 9.0 ?2? Kaltherzinterstitia Ebene 1
 							[1796] = true, -- Thorgast 9.0 ?2? Kaltherzinterstitia Ebene 5
 							[1630] = true, -- Thorgast 9.0 ?2? Kaltherzinterstitia Ebene 6
+							[1961] = true, -- Korthia 9.1
 							[1970] = true, -- Zereth Mortis
 							-- Dragon Flight
+							[940]  = true, -- The Vindikaar . Oberdeck(quest:77408)
 							[2109] = true, -- Forbidden Reach: Creche (Evoker)
 							[2118] = true, -- Forbidden Reach (Evoker)
 							[2022] = true, -- Dragon Isles: The Waking Shores
@@ -1364,7 +1406,16 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							[2124] = true, -- Dragon Isles: Gewölbe der Inkarnationen: Urzeitliche Konvergenz
 							[2151] = true, -- Forbidden Reach (10.0.7)
 							[2133] = true, -- Zaralek Cavern (10.1)
+							[2165] = true, -- Der Durchgang /Zaralek Cavern (10.1)
+							[2166] = true, -- Aberrus, the Shadowed Crucible (Raid) (10.1)
+							[2171] = true, -- Aberrus, the Shadowed Crucible (Raid) (quest-edition)(10.1)
+							[2173] = true, -- Aberrus, the Shadowed Crucible (Raid) Neltharions Sanctum (quest-edition)(10.1)
+							[2174] = true, -- Aberrus, the Shadowed Crucible (Raid) Schneide des Vergessens (quest-edition)(10.1)
+							[2184] = true, -- Zaralek Cavern Tiefenschindernest (10.1)
 							[2200] = true, -- Emerald Dream (10.2)
+							[2239] = true, -- Amirdrassil (10.2)
+							[2254] = true, -- Emerald Dream --Hügel der Träume(10.2)
+
 							-- The War Within
 							[2255] = true, -- Azj-Kahet
 							[2256] = true, -- Azj-Kahet - Lower
@@ -1377,7 +1428,62 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							[2305] = true, -- Dalaran
 							[2321] = true, -- Chamber of Heart Silithus
 							[2322] = true, -- Hall of Awakening (earthen-race)
-							}
+							[2362] = true, -- Blackrock Depths (Raid)
+							[2363] = true, -- Blackrock Depths - Gefängnisblock(Raid)
+							[2346] = true, -- Undermine
+
+							-- TWW Dungeons (S2)
+							[2315] = true, -- Isle of Dorn >Die Brutstätte: Der Brustättenlandeplatz (lvl1)
+							[2316] = true, -- Isle of Dorn >Die Brutstätte: Sturmhorst (lvl2)
+							[2317] = true, -- Isle of Dorn >Die Brutstätte: Sturmkrähenbrutstätte (lvl3)
+							[2318] = true, -- Isle of Dorn >Die Brutstätte: Sturmreiterkaserne (lvl4)
+							[2319] = true, -- Isle of Dorn >Die Brutstätte: Einstürzende Sturmhalle (lvl5)
+							[2320] = true, -- Isle of Dorn >Die Brutstätte: Verlassene Minen (lvl6)
+							[2303] = true, -- Khaz>Schallende Tiefen>Dunkelflammenspalt
+							[2335] = true, -- Isle of Dorn > Metbrauerei Glutbräu
+							[2308] = true, -- Heilsturz> Priorität der Heligen Flamme: Geweihter Boden (lvl1)
+							[2309] = true, -- Heilsturz> Priorität der Heligen Flamme: Priorat der Heiligen Flamme (lvl2)
+							[2387] = true, -- Schallende Tiefen > Operation: Schleuse: Die Wasserwerke (lvl1)
+							[2388] = true, -- Schallende Tiefen > Operation: Schleuse: Das R.A.S.T.E.R. (lvl2)
+
+							[1683] = true, -- Maldraxxus > Theater der Schmerzen: Theater der Schmerzen (lvl1)
+							[1684] = true, -- Maldraxxus > Theater der Schmerzen: Kammer der Eroberung (lvl2)
+							[1685] = true, -- Maldraxxus > Theater der Schmerzen: Altäre der Agonie (lvl3)
+							[1686] = true, -- Maldraxxus > Theater der Schmerzen: Obere Tunnel des Gemetzels (lv4)
+							[1687] = true, -- Maldraxxus > Theater der Schmerzen: Untere Tunnel des Gemetzels (lv4)
+
+							[1490] = true, -- Kul Tiras >Operation: Mechagon: Mechagon (lvl1)
+							[1491] = true, -- Kul Tiras >Operation: Mechagon: Das Robodrom (lvl2)
+							[1493] = true, -- Kul Tiras >Operation: Mechagon: Abflussrohre (lvl3)
+							[1494] = true, -- Kul Tiras >Operation: Mechagon: Die Unterhalde (lvl4)
+							[1497] = true, -- Kul Tiras >Operation: Mechagon: Stadt Mechagon (lvl5)
+							[1010] = true, -- Mahlstrom> Kezan:Das RIESENFLÖZ!!
+
+							-- TWW: Delves
+							[2423] = true, -- Kaz Algar>Schallende Tiefen>Lorenhall>Seitenstraßenschleuse (Lvl1): Eingang
+							[2422] = true, -- Kaz Algar>Schallende Tiefen>Lorenhall>Seitenstraßenschleuse (Lvl2): Die Hohen Decks
+							[2421] = true, -- Kaz Algar>Schallende Tiefen>Lorenhall>Seitenstraßenschleuse (Lvl3): Die Niedrigen Decks
+							[2420] = true, -- Kaz Algar>Schallende Tiefen>Lorenhall>Seitenstraßenschleuse (Lvl4): Die Grube
+
+							[2302] = true, -- Kaz Algar>Schallende Tiefen> Terrorschacht
+
+
+							-- TWW Raids:
+							[2292] = true, --Azj-Kahet> Palast der Nerub'ar (11.0): Großes Bollwerk (lvl1)
+							[2291] = true, --Azj-Kahet> Palast der Nerub'ar (11.0): Die Gärende Grube (lvl2)
+							[2293] = true, --Azj-Kahet> Palast der Nerub'ar (11.0): Terasse der Majestät (lvl3)
+							[2294] = true, --Azj-Kahet> Palast der Nerub'ar (11.0): Der Narthex (lvl4)
+							[2295] = true, --Azj-Kahet> Palast der Nerub'ar (11.0): Die Krone der Schatten (lvl5)
+							[2296] = true, --Azj-Kahet> Palast der Nerub'ar (11.0): Die Krone der Schatten - Oberer Bereich (lvl6)
+
+							[2406] = true, --Schallende Tiefen> Befreiung von Lorenhall (11.1):Lorenhall (lvl1)
+							[2428] = true, --Schallende Tiefen> Befreiung von Lorenhall (11.1):Forschung und Zerstörung (lvl2)
+							[2407] = true, --Schallende Tiefen> Befreiung von Lorenhall (11.1):Das Garbagio (lvl3)
+							[2408] = true, --Schallende Tiefen> Befreiung von Lorenhall (11.1):Das Glückliche Herz (lvl4)
+							[2411] = true, --Schallende Tiefen> Befreiung von Lorenhall (11.1):Der Pikturm (lvl5)
+							[2409] = true, --Schallende Tiefen> Befreiung von Lorenhall (11.1):Das Haus des Chroms (lvl6)
+
+						}
 
 						self.quest.name[51570]=Grail:_GetMapNameByID(862)	-- Zuldazar
 						self.quest.name[51571]=Grail:_GetMapNameByID(863)	-- Nazmir
@@ -4192,7 +4298,7 @@ end,
 			self.invalidateControl[self.invalidateGroupCurrentWorldQuests] = {}
 --			self.availableWorldQuests = {}
 
-			local mapIdsForWorldQuests = { 14, 62, 625, 627, 630, 634, 641, 646, 650, 680, 790, 830, 882, 885, 862, 863, 864, 895, 896, 942, 1161, 1355, 1462, 1525, 1527, 1530, 1533, 1536, 1543, 1565, 1970, 2022, 2023, 2024, 2025, 2085, 2112, 2133, 2151, 2200, 2213, 2214 ,2215, 2248, 2255, 2256}
+			local mapIdsForWorldQuests = { 14, 62, 625, 627, 630, 634, 641, 646, 650, 680, 790, 830, 882, 885, 862, 863, 864, 895, 896, 942, 1161, 1355, 1462, 1525, 1527, 1530, 1533, 1536, 1543, 1565, 1970, 2022, 2023, 2024, 2025, 2085, 2112, 2133, 2151, 2200, 2213, 2214 ,2215, 2248, 2255, 2256, 2346}
 
 			for _, mapId in pairs(mapIdsForWorldQuests) do
 				self:_PrepareWorldQuestSelfNPCs(mapId)
