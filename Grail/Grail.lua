@@ -1129,7 +1129,7 @@ experimental = false,	-- currently this implementation does not reduce memory si
 						end
 					end
 
-					self.existsClassic = self.existsClassicBasic or self.existsClassicWrathOfTheLichKing or self.existsClassicCataclysm
+					self.existsClassic = self.existsClassicBasic or self.existsClassicWrathOfTheLichKing or self.existsClassicCataclysm or self.existsClassicPandaria
 
 					GrailDatabase[self.environment] = GrailDatabase[self.environment] or {}
 					self.GDE = GrailDatabase[self.environment]
@@ -1138,7 +1138,7 @@ experimental = false,	-- currently this implementation does not reduce memory si
 					self.capabilities = {}
 					self.capabilities.usesFriendshipReputation = self.existsMainline
 -- TODO: Deal with the following...
-					self.capabilities.usesAchievements = not self.existsClassic or self.existsClassicWrathOfTheLichKing or existsClassicCataclysm
+					self.capabilities.usesAchievements = not self.existsClassic or self.existsClassicWrathOfTheLichKing or existsClassicCataclysm or self.existsClassicPandaria
 					self.capabilities.usesGarrisons = self.existsMainline
 					self.capabilities.usesArtifacts = false --self.existsMainline
 					self.capabilities.usesCampaignInfo = self.existsMainline
@@ -1194,7 +1194,7 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							['U'] = { 'Scourge',  'Undead',    'Undead',    0x00400000 },
 							}
 						self.bitMaskRaceAll = 0x01e78000
-						if self.existsClassicWrathOfTheLichKing or self.existsClassicCataclysm then
+						if self.existsClassicWrathOfTheLichKing or self.existsClassicCataclysm or self.existsClassicPandaria then
 							self.races['B'] = { 'BloodElf', 'Blood Elf', 'Blood Elf', 0x02000000 }
 							self.races['D'] = { 'Draenei',  'Draenei',   'Draenei',   0x00080000 }
 							self.bitMaskRaceAll = 0x03ef8000
@@ -2724,6 +2724,7 @@ end,
 		existsClassicWrathOfTheLichKing = (WOW_PROJECT_ID == WOW_PROJECT_WRATH_CLASSIC),
 		existsClassicCataclysm = (WOW_PROJECT_ID == WOW_PROJECT_CATACLYSM_CLASSIC),
 		existsClassicEra = (WOW_PROJECT_ID == WOW_PROJECT_CLASSIC),	-- _classic_era_	"World of Warcraft Classic"
+		existsClassicPandaria = (WOW_PROJECT_ID == WOW_PROJECT_MISTS_CLASSIC),-- "Mist of Pandaria Classic"
 		existsClassic = (WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and WOW_PROJECT_ID ~= WOW_PROJECT_CLASSIC),	-- _classic_	"Cataclysm Classic"
 		existsMainline = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE),	-- _retail_	"World of Warcraft"
 		factionMapping = { ['A'] = 'Alliance', ['H'] = 'Horde', },
@@ -8385,7 +8386,7 @@ end
 		end,
 
 		_HandleEventUpdateExpansionLevel = function(self, unk1, unk2, oldExpansion, unk3, upgFromExpTrial)
-			local message = "UpdateExpansionLevel: unk1:" .. unk1 .. "unk2:" .. unk2 .. " from oldExpansion " .. oldExpansion .. "unk3:" .. unk3 .. "upgFromExpTrial:" .. upgFromExpTrial
+			local message = "UpdateExpansionLevel: ~currentExpansionLevel~+unk1:" .. unk1 .. "~currentAccountExpansionLevel~unk2:" .. unk2 .. " from oldExpansion " .. oldExpansion .. "~previousAccountExpansionLevel~unk3:" .. unk3 .. "upgFromExpTrial:" .. upgFromExpTrial
 			if self.GDE.debug then
 				print(message)
 			end
@@ -8393,7 +8394,7 @@ end
 		end,
 
 		_HandleMinExpansionLevelUpdated = function(self)
-			local message = "MinEpansionLevel updated: ael:" .. self.accountExpansionLevel .. " el:" .. self.expansionLevel .. " cEL:" .. self.classicExpansionLevel .. " sEL:" .. serverExpansionLevel
+			local message = "MinEpansionLevel updated: ael:" .. self.accountExpansionLevel .. " el:" .. self.expansionLevel .. " cEL:" .. self.classicExpansionLevel .. " sEL:" .. self.serverExpansionLevel
 				self:_AddTrackingMessage(message)
 			if self.GDE.debug then
 				print(message)
@@ -8401,15 +8402,12 @@ end
 		end,
 
 		_HandleMaxExpansionLevelUpdated = function(self)
-			local message = "MaxEpansionLevel updated: ael:" .. self.accountExpansionLevel .. " el:" .. self.expansionLevel .. " cEL:" .. self.classicExpansionLevel .. " sEL:" .. serverExpansionLevel
+			local message = "MaxEpansionLevel updated: ael:" .. self.accountExpansionLevel .. " el:" .. self.expansionLevel .. " cEL:" .. self.classicExpansionLevel .. " sEL:" .. self.serverExpansionLevel
 			if self.GDE.debug then
 				print(message)
 			end
 			self:_AddTrackingMessage(message)
 		end,
-
-
-
 
 		---
 		--	Checks whether the garrison has the specific buildingId, where a negative buildingId will mean
