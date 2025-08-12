@@ -1,4 +1,4 @@
-## Interface: 11505, 40401, 110002, 110005, 110007
+## Interface: 11505, 40401, 50500, 110002, 110005, 110007, 110105, 110107
 ## Title: Grail
 ## Author: Scott M Harrison
 ## Notes: Knows about quests
