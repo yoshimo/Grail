@@ -1144,7 +1144,7 @@ experimental = false,	-- currently this implementation does not reduce memory si
 					self.capabilities.usesCampaignInfo = self.existsMainline
 					self.capabilities.usesCalendar = self.existsMainline
 					self.capabilities.usesAzerothAsCosmicMap = self.existsClassicEra
-					self.capabilities.usesQuestHyperlink = self.existsMainline
+					self.capabilities.usesQuestHyperlink = self.existsMainline or self.existsClassicWrathOfTheLichKing or existsClassicCataclysm or self.existsClassicPandaria
 					self.capabilities.usesFollowers = self.existsMainline
 					self.capabilities.usesWorldEvents = self.existsMainline
 					self.capabilities.usesWorldQuests = self.existsMainline
@@ -1155,7 +1155,7 @@ experimental = false,	-- currently this implementation does not reduce memory si
 					self.capabilities.usesAreaPOIs = self.existsMainline
 					self.capabilities.usesLegendaryQuests = self.existsMainline
 					self.capabilities.usesThreatQuests = self.existsMainline
-					self.capabilities.usesPetBattles = self.existsMainline
+					self.capabilities.usesPetBattles = self.existsMainline or self.existsClassicPandaria
 					self.capabilities.usesImportantQuests = self.existsMainline
 					self.capabilities.usesInvasionQuests = self.existsMainline
 					self.capabilities.usesAccountQuests = self.existsMainline
@@ -1199,7 +1199,10 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							self.races['D'] = { 'Draenei',  'Draenei',   'Draenei',   0x00080000 }
 							self.bitMaskRaceAll = 0x03ef8000
 						end
-						
+						if self.existsClassicPandaria then
+							self.races['A'] = { 'Pandaren', 'Pandaren',  'Pandaren',  0x08000000 }
+							self.bitMaskRaceAll = 0x0BEF8000
+						end
 						--	To make things a little prettier, because we are using phase 0000 to represent the location of the Darkmoon Faire we
 						--	define the map area for 0000 to be that.
 						self.mapAreaMapping[0] = self.holidayMapping['F']
