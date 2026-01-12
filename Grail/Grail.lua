@@ -1063,13 +1063,18 @@ experimental = false,	-- currently this implementation does not reduce memory si
 				end
 			end,
 
-			['ACHIEVEMENT_EARNED'] = function(self, frame, arg1)
+			['ACHIEVEMENT_EARNED'] = function(self, frame, arg1, arg2)
 				local achievementNumber = tonumber(arg1)
 				if nil ~= achievementNumber and nil ~= self.questStatusCache['A'][achievementNumber] then
 					if not self.inCombat or not self.GDE.delayEvents then
+						print("Grail AchievementEarned with number:" , achievementNumber)
 						self:_HandleEventAchievementEarned(achievementNumber)
+						self:_AddTrackingMessage("Achievement earned: ", achievementNumber)
+						
 					else
+						print("Grail AchievementEarned with number:" , achievementNumber)
 						self:_RegisterDelayedEvent(frame, { 'ACHIEVEMENT_EARNED', achievementNumber } )
+						self:_AddTrackingMessage("Achievement earned: ", achievementNumber)
 					end
 				end
 			end,
@@ -1217,6 +1222,7 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							[1]   = true, -- Durotar
 							[14]  = true, -- Arathi
 							[17]  = true, -- Blasted Lands
+							[23]  = true, -- Western Plaguelands
 							[24]  = true, -- Lights Hope Chapel, Western Plaguelands, Paladin Order Hall, Legion
 							[25]  = true, -- Hillsbrad Foothils
 							[26]  = true, -- The Hinterlands
@@ -1261,7 +1267,7 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							[433] = true, -- The Veiled Stairs, MoP
 							[439] = true, -- Trueshot Lodge, Highmountain , Hunter Order Hall, Legion
 							[525] = true, -- Frostfire Ridge, WoD
-							[534] = true,
+							[534] = true, -- Tanaan Jungle, WoD
 							[535] = true, -- Talador, WoD
 							[539] = true,
 							[542] = true, -- Spires of Arrak, WoD
@@ -1275,12 +1281,14 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							[628] = true, -- Dalaran -- Shadow Site
 							[629] = true, -- Dalaran --Aegwynns Gallery
 							[630] = true, -- Legion: Aszuna
+							[631] = true, -- Legion: Aszuna, Academy of Nar'thalas
 							[634] = true, -- Legion: Stormheim
 							[641] = true, -- Legion: Val'shara
 							[646] = true, -- Legion: Broken Shore
 							[648] = true, -- Legion: Acherus, DK Order Hall
-							[649] = true,
-							[650] = true, -- Highmountain
+							[649] = true, -- Legion: Stormheim-Helheim
+							[650] = true, -- Legion: Highmountain
+							[657] = true, -- Legion: Highmountain - Neltharions Vault
 							[672] = true, -- Mardum , DH Startzone
 							[673] = true, -- Cryptic Hollow - Mardum , DH Startzone
 							[674] = true, -- The Soul Engine (lower Floor) - Mardum , DH Startzone
@@ -1335,7 +1343,8 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							[790] = true,
 							[804] = true, -- Scarlet Monastery (Dungeon)
 							[826] = true, -- Mage Tower Legion (windwalker) - Höhle der Bluttotems
-							[830] = true, -- Vindicaar: UpperDeck
+							[830] = true, -- Legion: Krokuun
+							[831] = true, -- Vindicaar: UpperDeck		(Yoshimo: maybe beginning of the quests compared to 830?)					
 							[850] = true, -- Tomb Of Sargeras, Legion
 							[851] = true, -- Tomb Of Sargeras, Legion
 							[852] = true, -- Tomb Of Sargeras, Legion
@@ -1343,9 +1352,10 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							[854] = true, -- Tomb Of Sargeras - Chamber of the Avatar , Legion
 							[855] = true, -- Tomb Of Sargeras - Felstorm Rift, Legion
 							[856] = true, -- Tomb Of Sargeras - Whirling Nether, Legion
-							[882] = true, -- Eredath
+							[882] = true, -- Legion: Eredath
+							--- 8.x BFA ---
+
 							[885] = true,
-							-- the following are the BfA maps (the three in Zandalar and three in Kul Tiras)
 							[862] = true, -- Zuldazar (primarily horde)
 							[863] = true, -- Nazmir (primarily horde)
 							[864] = true, -- Vol'dun (primarily horde)
@@ -8249,6 +8259,8 @@ end
 		_HandleEventAchievementEarned = function(self, achievementId)
 			self:_StatusCodeInvalidate(self.questStatusCache['A'][achievementId])
 			self:_NPCLocationInvalidate(self.npcStatusCache['A'][achievementId])
+			print("Grail Achievment handled with number: ", achievementId)
+			self:_AddTrackingMessage("Achievement earned: ", achievementId)
 		end,
 
 		_HandleEventMajorFactionUnlocked = function(self, factionId)
