@@ -2452,6 +2452,7 @@ if self.GDE.debug then print("*** GOSSIP_ENTER_CODE", ...) end
 end,
 
 			['PLAYER_ENTERING_WORLD'] = function(self, frame)
+			print("|cFF00FF00Grail|r: needs your help! Consider running /grail tracking & /Grail treasures ON and submit your data regularly")
 				if self.capabilities.usesArtifacts then
 					frame:RegisterEvent("ARTIFACT_XP_UPDATE")
 				end
