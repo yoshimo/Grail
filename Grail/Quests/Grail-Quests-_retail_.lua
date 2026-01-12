@@ -3,7 +3,7 @@
 --	Written by scott@mithrandir.com
 --
 --	Version History
---		001	Initial verison.
+--		001	Initial version.
 --		002	Added all the Lunar Festival and Harvest Festival quests.
 --		003	Added the Love is in the Air quests except for the following which appear to have been removed from the game
 --				[14488]='HA L075 A:38208 T:36296 P:24792,24793'
@@ -103,8 +103,8 @@
 --			s	skill not possessed (where the value is Blizzard's spell ID of the skill)
 --			Txxxyyyyy	reputation xxx must be at least yyyyy value
 --			txxxyyyyy	reputation xxx must be under yyyyy value
---			Uxxxyyyyy	frienship reputation xxx must be at least yyyyy value -- used for withering
---			uxxxyyyyy	frienship reputation xxx must be under yyyyy value -- used for withering
+--			Uxxxyyyyy	friendship reputation xxx must be at least yyyyy value -- used for withering
+--			uxxxyyyyy	friendship reputation xxx must be under yyyyy value -- used for withering
 --			Vxxxy	quest group xxx must have y quests accepted
 --			vxxxxx	quest must have been turned in prior to the previous weekly reset
 --			Wxxxy	quest group xxx must have y quests completed (turned in)
@@ -193,7 +193,7 @@
 --		OTC:pat		where pat is a comma-separated list of plus-separated pairs where the first in the pair is an NPC ID and the second is the quest ID to complete
 --		P:pat		where pat is a pattern (see below) of quests considered to be prerequisites
 --		DEPRECATED	Pxyyy		where x is the key to a required profession and yyy is the minimum skill (see professionMapping).
---		Qx:QualifiedPattern	is completed when a Gossip number x is peformed with the first matching NPC from the QualifiedPattern
+--		Qx:QualifiedPattern	is completed when a Gossip number x is performed with the first matching NPC from the QualifiedPattern
 --		Rx			where x is the key to a permitted race (see raceMapping).  if no Rx is present any race can accept the quest
 --		Sx			where x is the key to an excluded race (see raceMapping).  if no Sx is present, any race can accept the quest
 --		SP			indicated the quest is a special one that never appears in the quest log
@@ -219,7 +219,7 @@
 --		Semicolon separates prerequisite phrases.  If there is no colon after the NPC id, then the NPC is always valid.
 --
 --		When an NPC phases, we make an alias NPC and use the AP:/TP: structure to handle this.  If we were to attempt to actually apply the prerequisite information on
---		the NPC itslef to represent the phasing we would lose the capability to map locations properly that are not in the current phase.  Therefore, alias NPCs are used
+--		the NPC itself to represent the phasing we would lose the capability to map locations properly that are not in the current phase.  Therefore, alias NPCs are used
 --		for the proper NPC for each quest part.
 --
 --	Patterns for prerequisites and invalidations is a comma-separated list of quests, any of which match.  Within the comma-separated list there
