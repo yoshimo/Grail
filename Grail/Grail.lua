@@ -575,6 +575,8 @@
 --			Switches TOC to have a single Interface that lists all supported versions.
 --			Changes the use of localized names to no longer be addons but to be included in the base Grail addon.
 --		124 Adds IsQuestFlaggedCompletedOnAccount to help indicate when a quest is completed by the warband.
+--		125 Corrects some issues that would cause taint.
+--			Changes the way zones are intialized to allow continents that have continents within them to work properly.
 --
 --	Known Issues
 --
@@ -2398,6 +2400,16 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 				local targetName, npcId, coordinates = self:TargetInformation()
 				self.currentGossipNPCId = npcId
 --				print("GOSSIP_SHOW:",targetName, npcId, coordinates,GetNumGossipAvailableQuests(),GetNumGossipActiveQuests(),GetNumGossipOptions(),GetGossipOptions())
+				-- Check available gossip quests for unverified prerequisite observations.
+				-- This covers multi-quest NPCs where QUEST_DETAIL only fires after the player selects a quest.
+				if C_GossipInfo and C_GossipInfo.GetAvailableQuests then
+					local gossipQuests = C_GossipInfo.GetAvailableQuests()
+					if gossipQuests then
+						for _, questInfo in ipairs(gossipQuests) do
+							self:_CheckAndLearnPrereqVerification(questInfo.questID)
+						end
+					end
+				end
 			end,
 
 			['ITEM_TEXT_READY'] = function(self, frame, ...)
@@ -2549,13 +2561,15 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 				local npcId, npcName = self:GetNPCInformation("questnpc")
 				local coordinates = self:Coordinates()
 				local databaseNPCId = self:_UpdateTargetDatabase(npcName, npcId, coordinates)
+				local offeredQuestId = GetQuestID()
 				self.questDetailInformation = {
 					blizzardNPCId = npcId,
 					coordinates = coordinates,
 					npcId = databaseNPCId,
 					npcName = npcName,
-					questId = GetQuestID()	-- technically we do not currently use this, but it might be useful
+					questId = offeredQuestId
 				}
+				self:_CheckAndLearnPrereqVerification(offeredQuestId)
 			end,
 
 			-- Prior to Shadowlands, the signature is (self, frame, questIndex, questId)
@@ -2667,6 +2681,22 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 				self.questTurningIn = questId
 				self:_QuestCompleteProcess(questId)
 				self:_UpdateQuestResetTime()
+				-- If this is a ?-marked prereq for any target quest, record it as the most
+				-- recent turn-in so _LearnPrereqVerification can identify the trigger prereq.
+				local targets = self.verifyWatchedBy[questId]
+				if targets then
+					for _, targetQuestId in ipairs(targets) do
+						local unverified = self.questUnverifiedPrereqs[targetQuestId]
+						if unverified then
+							for _, uid in ipairs(unverified) do
+								if uid == questId then
+									self.recentPrereqTurnIn[targetQuestId] = questId
+									break
+								end
+							end
+						end
+					end
+				end
 			end,
 
 			['GARRISON TALENT COMPLETE'] = function(self, frame, garrTypeID, doAlert)
@@ -3203,6 +3233,10 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 --		questNames = {},
 --		questNPCId = nil,
 		questPrerequisites = {},
+		questUnverifiedPrereqs = {},		-- key is questId, value is ordered table of prereq questIds marked with ? in the P: code
+		questVerifyAllPrereqs = {},			-- key is questId, value is table of ALL bare integer prereq questIds when any are unverified; used to build verifyWatchedBy
+		verifyWatchedBy = {},				-- key is a prereq questId, value is table of target questIds that have unverified prereqs and include this prereq; built lazily in _CodeAllFixed
+		recentPrereqTurnIn = {},			-- key is targetQuestId, value is the most recent ?-marked prereq questId turned in before targetQuestId appeared at an NPC
 		questReputationRequirements = {},	-- key is questId, value is a string of 4-character codes appended to each other, ignoring specific aspects of the P: code positions
 		questReputations = {},			-- the table after the initial load is processed
 		questResetTime = 0,
@@ -3269,7 +3303,8 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 			[8] = { 2103, 2111, 2120, 2156, 2157, 2158, 2159, 2160, 2161, 2162, 2163, 2164, 2233, 2264, 2265, 2371, 2372, 2373, 2374, 2375, 2376, 2377, 2378, 2379, 2380, 2381, 2382, 2383, 2384, 2385, 2386, 2387, 2388, 2389, 2390, 2391, 2392, 2395, 2396, 2397, 2398, 2400, 2401, 2415, 2417, 2427, },
 			[9] = { 2407, 2410, 2413, 2432, 2439, 2445, 2446, 2447, 2448, 2449, 2450, 2451, 2452, 2453, 2454, 2455, 2456, 2457, 2458, 2459, 2460, 2461, 2462, 2463, 2464, 2465, 2469, 2470, 2472, 2478, },
 			[10] = { 2503, 2507, 2509, 2510, 2511, 2512, 2513, 2517, 2518, 2520, 2522, 2523, 2524, 2526, 2542, 2544, 2550, 2553, 2554, 2555, 2557, 2564, 2568, 2574, 2593, 2615, },
-			[11] = { 2570, 2590, 2594, 2600, 2601, 2605, 2607, 2640, 2644, 2645, },
+			[11] = { 2569, 2570, 2590, 2594, 2600, 2601, 2605, 2607, 2640, 2644, 2645, 2653, 2658, 2663, 2664, 2665, 2666, 2669, 2671, 2673, 2675, 2677, 2683, 2685, 2688, 2693, 2722, 2736, 2739, 2766, 2767, }, -- TWW
+			[12] = { 2696, 2698, 2699, 2704, 2710, 2711, 2712, 2713, 2714, 2742, 2744, 2764, 2770, },	-- Midnight
 			},
 
 		-- These reputations use the friendship names instead of normal reputation names
@@ -3615,6 +3650,7 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
             ["9FD"] = "XXX", -- 2557
             ["A04"] = "Loamm Niffen", -- 2564
             ["A08"] = "Glimmerogg Racer", -- 2568
+            ["A09"] = "The War Within", -- 2569
             ["A0A"] = "Hallowfall Arathi", -- 2570
             ["A0E"] = "Dream Wardens", -- 2574
             ["A1E"] = "Council of Dornogal", -- 2590
@@ -3628,6 +3664,39 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
             ["A50"] = "Brann Bronzebeard", -- 2640
             ["A54"] = "Delves: Season 1", -- 2644
             ["A55"] = "Earthen", -- 2645
+            ["A5D"] = "The Cartels of Undermine", -- 2653
+            ["A62"] = "The K'aresh Trust", -- 2658
+            ["A67"] = "Meerah", -- 2663
+            ["A68"] = "Flynn Fairwind", -- 2664
+            ["A69"] = "Lillistrasza", -- 2665
+            ["A6A"] = "Roasts and Boasts", -- 2666
+            ["A6D"] = "Darkfuse Solutions", -- 2669
+            ["A6F"] = "Venture Company", -- 2671
+            ["A71"] = "Bilgewater Cartel", -- 2673
+            ["A73"] = "Blackwater Cartel", -- 2675
+            ["A75"] = "Steamwheedle Cartel", -- 2677
+            ["A7B"] = "Delves: Season 2", -- 2683
+            ["A7D"] = "Gallagio Loyalty Rewards Club", -- 2685
+            ["A80"] = "Flame's Radiance", -- 2688
+            ["A85"] = "Delver's Journey (Season 1)", -- 2693
+            ["A88"] = "Amani Tribe", -- 2696
+            ["A8A"] = "Midnight", -- 2698
+            ["A8B"] = "The Singularity", -- 2699
+            ["A90"] = "Hara'ti", -- 2704
+            ["A96"] = "Silvermoon Court", -- 2710
+            ["A97"] = "Magisters", -- 2711
+            ["A98"] = "Blood Knights", -- 2712
+            ["A99"] = "Farstriders", -- 2713
+            ["A9A"] = "Shades of the Row", -- 2714
+            ["AA2"] = "Delves: Season 3", -- 2722
+            ["AB0"] = "Manaforge Vandals", -- 2736
+            ["AB3"] = "Delves: Coffer Key Shards Conversion", -- 2739
+            ["AB6"] = "Delves: Season 1", -- 2742
+            ["AB8"] = "Valeera Sanguinar", -- 2744
+            ["ACC"] = "Prey: Season 1", -- 2764
+            ["ACE"] = "Brawl'gar Arena", -- 2766
+            ["ACF"] = "Bizmo's Brawlpub", -- 2767
+            ["AD2"] = "Slayer's Duellum", -- 2770
 			},
 
 		reputationMappingFaction = {
@@ -3917,6 +3986,7 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
             ["9FD"] = "Neutral", -- 2555    -- TODO: Determine faction
             ["A04"] = "Neutral", -- 2564    -- TODO: Determine faction
             ["A08"] = "Neutral", -- 2568    -- TODO: Determine faction
+            ["A09"] = "Neutral", -- 2569    -- TODO: Determine faction
             ["A0A"] = "Neutral", -- 2570    -- TODO: Determine faction
             ["A0E"] = "Neutral", -- 2574    -- TODO: Determine faction
             ["A1E"] = "Neutral", -- 2590    -- TODO: Determine faction
@@ -3930,6 +4000,38 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
             ["A50"] = "Neutral", -- 2640    -- TODO: Determine faction
             ["A54"] = "Neutral", -- 2644    -- TODO: Determine faction
             ["A55"] = "Neutral", -- 2645    -- TODO: Determine faction
+            ["A5D"] = "Neutral", -- 2653    -- TODO: Determine faction
+            ["A62"] = "Neutral", -- 2658    -- TODO: Determine faction
+            ["A67"] = "Neutral", -- 2663    -- TODO: Determine faction
+            ["A68"] = "Neutral", -- 2664    -- TODO: Determine faction
+            ["A69"] = "Neutral", -- 2665    -- TODO: Determine faction
+            ["A6A"] = "Neutral", -- 2666    -- TODO: Determine faction
+            ["A6D"] = "Neutral", -- 2669    -- TODO: Determine faction
+            ["A6F"] = "Neutral", -- 2671    -- TODO: Determine faction
+            ["A71"] = "Neutral", -- 2673    -- TODO: Determine faction
+            ["A73"] = "Neutral", -- 2675    -- TODO: Determine faction
+            ["A75"] = "Neutral", -- 2677    -- TODO: Determine faction
+            ["A7B"] = "Neutral", -- 2683    -- TODO: Determine faction
+            ["A80"] = "Neutral", -- 2688    -- TODO: Determine faction
+            ["A85"] = "Neutral", -- 2693    -- TODO: Determine faction
+            ["A88"] = "Neutral", -- 2696    -- TODO: Determine faction
+            ["A8A"] = "Neutral", -- 2698    -- TODO: Determine faction
+            ["A8B"] = "Neutral", -- 2699    -- TODO: Determine faction
+            ["A90"] = "Neutral", -- 2704    -- TODO: Determine faction
+            ["A96"] = "Neutral", -- 2710    -- TODO: Determine faction
+            ["A97"] = "Neutral", -- 2711    -- TODO: Determine faction
+            ["A98"] = "Neutral", -- 2712    -- TODO: Determine faction
+            ["A99"] = "Neutral", -- 2713    -- TODO: Determine faction
+            ["A9A"] = "Neutral", -- 2714    -- TODO: Determine faction
+            ["AA2"] = "Neutral", -- 2722    -- TODO: Determine faction
+            ["AB0"] = "Neutral", -- 2736    -- TODO: Determine faction
+            ["AB3"] = "Neutral", -- 2739    -- TODO: Determine faction
+            ["AB6"] = "Neutral", -- 2742    -- TODO: Determine faction
+            ["AB8"] = "Neutral", -- 2744    -- TODO: Determine faction
+            ["ACC"] = "Neutral", -- 2764    -- TODO: Determine faction
+            ["ACE"] = "Neutral", -- 2766    -- TODO: Determine faction
+            ["ACF"] = "Neutral", -- 2767    -- TODO: Determine faction
+            ["AD2"] = "Neutral", -- 2770    -- TODO: Determine faction
 			},
 
 		slashCommandOptions = {},
@@ -4116,7 +4218,7 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 			-- It would be great if we could support what is defined in the system, but it seems we cannot
 			-- and therefore if in Classic we limit ourselves to EXPANSION_NAME0 only.
 			if not self.existsClassic then
-				for expansionIndex = 1, 100 do
+				for expansionIndex = 0, 100 do
 					if nil == self:_ExpansionName(expansionIndex) then
 						break
 					end
@@ -4154,17 +4256,19 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 			self.mapToContinentMapping = {}		-- key is mapId, value is continent mapId
 			for i, continentInfo in ipairs(continents) do
 				local L = { name = continentInfo.name, zones = {}, mapID = continentInfo.mapID, dungeons = {} }
-				local zones = C_Map.GetMapChildrenInfo(continentInfo.mapID, Enum.UIMapType.Zone, ALL_DESCENDANTS)
+				-- Use false (not ALL_DESCENDANTS) so sub-continents (e.g. Quel'Thalas, Argus) keep their
+				-- own zones instead of having them stolen by the parent continent's recursive descent.
+				local zones = C_Map.GetMapChildrenInfo(continentInfo.mapID, Enum.UIMapType.Zone, false)
 				for j, zoneInfo in ipairs(zones) do
 					self:_AddMapId(L.zones, zoneInfo.name, zoneInfo.mapID, L.mapID)
 				end
-				local dungeons = C_Map.GetMapChildrenInfo(continentInfo.mapID, Enum.UIMapType.Dungeon, ALL_DESCENDANTS)
+				local dungeons = C_Map.GetMapChildrenInfo(continentInfo.mapID, Enum.UIMapType.Dungeon, false)
 				for j, dungeonInfo in ipairs(dungeons) do
 					self:_AddMapId(L.dungeons, dungeonInfo.name, dungeonInfo.mapID, L.mapID)
 				end
 -- TODO: Do we need to handle Micro map types?
 				-- Stormsong Valley is an Orphan and not a Zone in beta at least
-				local orphans = C_Map.GetMapChildrenInfo(continentInfo.mapID, Enum.UIMapType.Orphan, ALL_DESCENDANTS)
+				local orphans = C_Map.GetMapChildrenInfo(continentInfo.mapID, Enum.UIMapType.Orphan, false)
 				for j, orphanInfo in ipairs(orphans) do
 					self:_AddMapId(L.zones, orphanInfo.name, orphanInfo.mapID, L.mapID)
 				end
@@ -5757,6 +5861,76 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 			tinsert(self.GDE.learned.QUEST_NAME, self.playerLocale .. '|' .. self.blizzardRelease .. '|' .. questId .. '|' .. questName)
 		end,
 
+		---
+		--	Records a prerequisite verification observation for the given target quest.
+		--	Called when a quest with unverified prerequisites is seen as available at an NPC.
+		--	Format: grailVersion|release|locale|targetQuestId|allPrereqIds|completedPrereqIds|lastTurnedIn
+		--	  allPrereqIds    : all P: prereq IDs (both confirmed and ? ones)
+		--	  completedPrereqIds : which of those were already done when the quest appeared
+		--	  lastTurnedIn    : most recently turned-in ?-prereq before this quest appeared (0 if unknown)
+		--
+		--	Observations are useful when:
+		--	  (a) at least one ?-prereq was NOT yet done (lets us eliminate absent ones), OR
+		--	  (b) lastTurnedIn is known (identifies the trigger prereq even if all were done)
+		_LearnPrereqVerification = function(self, targetQuestId)
+			local allPrereqs = self.questVerifyAllPrereqs[targetQuestId]
+			local unverified = self.questUnverifiedPrereqs[targetQuestId]
+			if nil == allPrereqs or nil == unverified then return end
+
+			-- Determine which prereqs are currently complete
+			local completed = {}
+			for _, prereqId in ipairs(allPrereqs) do
+				if self:IsQuestFlaggedCompleted(prereqId) then
+					tinsert(completed, prereqId)
+				end
+			end
+
+			-- Check whether any ?-prereq was absent (useful for elimination)
+			local hasUsefulData = false
+			for _, uid in ipairs(unverified) do
+				local found = false
+				for _, cid in ipairs(completed) do
+					if cid == uid then found = true; break end
+				end
+				if not found then hasUsefulData = true; break end
+			end
+
+			-- Also useful if we know which prereq was the trigger (lastTurnedIn)
+			local lastTurnedIn = self.recentPrereqTurnIn[targetQuestId] or 0
+			if not hasUsefulData and lastTurnedIn == 0 then return end
+
+			-- Build comma-separated id lists for the record
+			local allStr = ''
+			for i = 1, #allPrereqs do
+				if i > 1 then allStr = allStr .. ',' end
+				allStr = allStr .. allPrereqs[i]
+			end
+			local completedStr = ''
+			for i = 1, #completed do
+				if i > 1 then completedStr = completedStr .. ',' end
+				completedStr = completedStr .. completed[i]
+			end
+
+			self.GDE.learned = self.GDE.learned or {}
+			self.GDE.learned.PREREQ_VERIFY = self.GDE.learned.PREREQ_VERIFY or {}
+			tinsert(self.GDE.learned.PREREQ_VERIFY,
+				self.versionNumber .. '|' .. self.blizzardRelease .. '|' ..
+				self.playerLocale .. '|' .. targetQuestId .. '|' ..
+				allStr .. '|' .. completedStr .. '|' .. lastTurnedIn)
+
+			-- Clear the trigger record; it has been captured in the observation
+			self.recentPrereqTurnIn[targetQuestId] = nil
+		end,
+
+		--	Convenience: ensures the quest is parsed then records a verification observation if applicable.
+		_CheckAndLearnPrereqVerification = function(self, questId)
+			if nil == questId then return end
+			self:_CodeAllFixed(questId)
+			if nil ~= self.questUnverifiedPrereqs[questId] then
+				self:_LearnPrereqVerification(questId)
+			end
+		end,
+
 		--	This should only be run after _CleanLearnedDatabase() because it is assumed anything
 		--	present at this point in the learned database will be integrated into the master.
 		_UpdateDatabaseFromLearnedDatabase = function(self)
@@ -6834,10 +7008,34 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 
 							elseif 'P' == code then
 								if ':' == codeValue then
+									local rawPrereqString = strsub(c, 3)
+									-- Strip ? from unverified prereq quest IDs and record them separately.
+									-- ? is only valid on bare numeric quest IDs (e.g. ?10995), not coded ones (e.g. A10995).
+									local unverified = {}
+									local cleanedString = gsub(rawPrereqString, '%?(%d+)', function(id)
+										tinsert(unverified, tonumber(id))
+										return id		-- return without ?, so downstream parsing sees a clean integer
+									end)
+									if #unverified > 0 then
+										self.questUnverifiedPrereqs[questId] = unverified
+										-- Also record ALL bare integer prereq questIds (confirmed + unverified) so the
+										-- verifyWatchedBy reverse index can trigger on any of them, not just the ? ones.
+										local allBarePrereqs = {}
+										for token in gmatch(cleanedString, '[^+,|]+') do
+											local id = tonumber(token)
+											if id then tinsert(allBarePrereqs, id) end
+										end
+										self.questVerifyAllPrereqs[questId] = allBarePrereqs
+										-- Build reverse index: any of these prereqs being turned in should trigger the warning.
+										for _, prereqId in ipairs(allBarePrereqs) do
+											self.verifyWatchedBy[prereqId] = self.verifyWatchedBy[prereqId] or {}
+											tinsert(self.verifyWatchedBy[prereqId], questId)
+										end
+									end
 									if self.nonPatternExperiment then
-										self.questPrerequisites[questId] = strsub(c, 3)
+										self.questPrerequisites[questId] = cleanedString
 									else
-										self.questPrerequisites[questId] = self:_FromPattern(strsub(c, 3))
+										self.questPrerequisites[questId] = self:_FromPattern(cleanedString)
 									end
 									self:_ProcessQuestsForHandlers(questId, self.questPrerequisites[questId])
 								else
@@ -8167,7 +8365,9 @@ end
 				if nil ~= targetName then break end
 			end
 			if nil ~= targetName then
-				local gid = UnitGUID(used)
+				-- UnitGUID returns a secret string on dead bodies; pcall guards against taint errors
+				local ok, gid = pcall(UnitGUID, used)
+				if not ok then gid = nil end
 				if nil ~= gid then
 					local targetType = nil
 					--	Blizzard has changed the separator from : to - but we will try both if needed
@@ -8192,7 +8392,9 @@ end
 		GetNPCInformation = function(self, npcType)
 			local npcId = nil
 			local name = UnitName(npcType)
-			local gid = UnitGUID(npcType)
+			-- UnitGUID returns a secret string on dead bodies; pcall guards against taint errors
+			local ok, gid = pcall(UnitGUID, npcType)
+			if not ok then gid = nil end
 			if nil ~= gid then
 				local targetType = nil
 				--	Blizzard has changed the separator from : to - but we will try both if needed
@@ -11906,6 +12108,16 @@ if self.GDE.debug then print("Marking OEC quest complete", oecCodes[i]) end
 				retval = self:_FromPattern(retval)
 			end
 			return retval
+		end,
+
+		---
+		--	Returns the ordered table of prerequisite quest IDs that are marked with ? in the P: code,
+		--	indicating they are present in the database but not yet confirmed as actually required.
+		--	Returns nil if the quest has no unverified prerequisites.
+		--	@param questId The numeric questId to check.
+		--	@return A table of numeric questIds, or nil.
+		QuestUnverifiedPrerequisites = function(self, questId)
+			return self.questUnverifiedPrereqs[tonumber(questId)]
 		end,
 
 		--	Returns a table whose key is the questId and whose value is a table made of the quest title and the completedness
