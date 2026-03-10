@@ -1582,17 +1582,19 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							[2432] = true, -- Isle of Quel'danas - Isle of Quel'danas ( while on quest 88719)
 							[2565] = true, -- Isle of Quel'danas - Isle of Quel'danas ( while on quest 86834)
 							[2579] = true, -- Isle of Quel'danas - Eversong Woods - Gruft von Wartha'nan
+							[2438] = true, -- Tirisfal: Scarlet Halls (during 86842)
+							[2541] = true, -- The Arcantina
 							-- Midnight dungeons
-							[2433]  = true, -- Silvermoon: Mördergasse: Mördergasse(Level 1)
-							[2435]  = true, -- Silvermoon: Mördergasse: Schwarzschauer (Level 2)
-							[2434]  = true, -- Silvermoon: Mördergasse: Terrasse der Auguren (Level 3)
-							[2492]  = true, -- Eversong Woods: Windrunnter Tower: Die Promenaade (Level 1)
-							[2493]  = true, -- Eversong Woods: Windrunnter Tower: Vereesas Rast: Oberer Bereich(Level 2)
-							[2494]  = true, -- Eversong Woods: Windrunnter Tower: Vereesas Rast: Unterer Bereich(Level 3)
-							[2496]  = true, -- Eversong Woods: Windrunnter Tower: Sylvanas' Gemächer: Oberer Bereich(Level 4)
-							[2497]  = true, -- Eversong Woods: Windrunnter Tower: Sylvanas' Gemächer: Unterer Bereich(Level 5)
-							[2498]  = true, -- Eversong Woods: Windrunnter Tower: Windläufergewölbe (Level 6)
-							[2499]  = true, -- Eversong Woods: Windrunnter Tower: Die Spitze (Level 7)
+							[2433] = true, -- Silvermoon: Mördergasse: Mördergasse(Level 1)
+							[2435] = true, -- Silvermoon: Mördergasse: Schwarzschauer (Level 2)
+							[2434] = true, -- Silvermoon: Mördergasse: Terrasse der Auguren (Level 3)
+							[2492] = true, -- Eversong Woods: Windrunnter Tower: Die Promenaade (Level 1)
+							[2493] = true, -- Eversong Woods: Windrunnter Tower: Vereesas Rast: Oberer Bereich(Level 2)
+							[2494] = true, -- Eversong Woods: Windrunnter Tower: Vereesas Rast: Unterer Bereich(Level 3)
+							[2496] = true, -- Eversong Woods: Windrunnter Tower: Sylvanas' Gemächer: Oberer Bereich(Level 4)
+							[2497] = true, -- Eversong Woods: Windrunnter Tower: Sylvanas' Gemächer: Unterer Bereich(Level 5)
+							[2498] = true, -- Eversong Woods: Windrunnter Tower: Windläufergewölbe (Level 6)
+							[2499] = true, -- Eversong Woods: Windrunnter Tower: Die Spitze (Level 7)
 							-- Midnight Delves
 							[2502]  = true, -- Eversong Woods: Schattenenklave
 							[2575]  = true, -- Harandar: Kluft der Erinnerung- Unterer Wurzelpfad
@@ -2443,7 +2445,7 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 				local questToComplete = self._ItemTextBeginList[npcId]
 				if nil ~= questToComplete then
 					self:_MarkQuestComplete(questToComplete, true)
-					local message = strformat("ITEM_TEXT_READY completes %d", questToComplete, "Coordinates: ",  Grail:Coordinates())
+					local message = strformat("ITEM_TEXT_READY completes %d | Target: %s (%d) | Coords: %s", questToComplete, tostring(targetName), tonumber(npcId) or -1, tostring(coordinates))
 					if self.GDE.debug then
 						print(message)
 					end
@@ -2467,7 +2469,6 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 					end
 				end
 			end,
-
 			['ITEM_TEXT_BEGIN'] = function(self, frame, ...)
 				local currentMapAreaId = Grail.GetCurrentMapAreaID()
 				if self.zonesForLootingTreasure[currentMapAreaId] then
@@ -2480,7 +2481,6 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 					end
 				end
 			end,
-
 			['LOOT_CLOSED'] = function(self, frame, ...)
 				local currentMapAreaId = Grail.GetCurrentMapAreaID()
 				if self.zonesForLootingTreasure[currentMapAreaId] then
@@ -8496,11 +8496,16 @@ end
 			end
 -- And back to the original code...
 			if #newlyCompleted > 0 or Grail.GDE.debug then
-				local lootingNameToUse = self.lootingName or "NO LOOTING OBJECT"
+				local function _grail_is_secret_string(v) return not pcall(function() return tostring(v) end) end
+				local function _grail_safe_tostring(v) local ok,s=pcall(tostring,v); if ok then return s else return "<secret>" end end
+				local lootingNameIsSecret = _grail_is_secret_string(self.lootingName)
+				local lootingNameToUse = lootingNameIsSecret and "<secret>" or (self.lootingName or "NO LOOTING OBJECT")
+				if lootingNameIsSecret then Grail:_AddChatMessage("|cffffd100Grail: Loot-Objektname ist tainted - logge als <secret>|r") end
 				local guidParts = { strsplit('-', self.lootingGUID or "") }
-				if nil ~= guidParts and guidParts[1] == "GameObject" and self.lootingName ~= self.defaultUnfoundLootingName then
+				if nil ~= guidParts and guidParts[1] == "GameObject" and not lootingNameIsSecret and self.lootingName ~= self.defaultUnfoundLootingName then
 					local internalName = self:ObjectName(guidParts[6])
-					if self.lootingName ~= internalName then
+					local internalNameIsSecret = _grail_is_secret_string(internalName)
+					if not internalNameIsSecret and self.lootingName ~= internalName then
 						self:_LearnObjectName(guidParts[6], lootingNameToUse)
 					end
 				end
@@ -14098,23 +14103,6 @@ end
 ]]--
 
 
--- === Patched Classic/Retail-safe UnitAura bridge (appended by patch) ===
-function Grail:UnitAura(unit, index, filter)
-    if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
-        local info = Grail_SafeGetAuraDataByIndex(unit, index, filter)
-        if info then return info.name, info.spellId end
-        return nil
-    end
-    if BLIZZ_UnitAura then
-        local name, _, _, _, _, _, _, _, _, boaSpellId, classicSpellId = BLIZZ_UnitAura(unit, index, filter)
-        local spellId = tonumber(classicSpellId or boaSpellId)
-        return name, spellId
-    end
-    return nil
-end
--- === end patched UnitAura ===
-
-
 -- === Final Classic/Retail-safe UnitAura ===
 function Grail:UnitAura(unit, index, filter)
     -- Retail path: use modern Aura API and skip secret aura indices (with debug print)
@@ -14139,3 +14127,138 @@ function Grail:UnitAura(unit, index, filter)
     return nil
 end
 -- === End Final UnitAura ===
+
+
+-- =====================
+-- Merge patch: Loot-Source logging ONLY when loot name is tainted (generated by M365 Copilot)
+-- No loot content logging, no aura logging. Logs only (SourceName, SourceNPCID) for slots where the item name is tainted/secret.
+
+-- Helper: add message to chat without tainting
+function Grail:_AddChatMessage(msg, r, g, b)
+    if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then
+        DEFAULT_CHAT_FRAME:AddMessage(tostring(msg), r or 1, g or 0.82, b or 0)
+    else
+        print(tostring(msg))
+    end
+end
+
+-- Helper: safely tostring values that might be protected/tainted
+local function _grail_safe_tostring(v)
+    local ok, s = pcall(tostring, v)
+    if ok then return s end
+    return "<secret>"
+end
+
+-- Parse NPCID out of a Unit GUID (Creature/Vehicle/Pet); returns number or nil
+local function _grail_npc_id_from_guid(guid)
+    if type(guid) ~= 'string' then return nil end
+    -- Expected format: Type-0-Server-Instance-Zone-\nNPCID-Spawn
+    local unitType, _, _, _, _, npcIdStr = strsplit('-', guid)
+    if unitType == 'Creature' or unitType == 'Vehicle' or unitType == 'Pet' then
+        local id = tonumber(npcIdStr)
+        return id
+    end
+    return nil
+end
+
+-- Try to find a UnitID token (e.g., 'target','mouseover','nameplate1', party/raid targets) for a given GUID
+local function _grail_find_unit_token_by_guid(guid)
+    if not guid then return nil end
+    local function check(token)
+        if UnitExists(token) and UnitGUID(token) == guid then return token end
+    end
+    -- quick candidates
+    local tokens = { 'target', 'mouseover', 'focus', 'npc' }
+    for _, t in ipairs(tokens) do
+        local hit = check(t)
+        if hit then return hit end
+    end
+    -- nameplates (retail)
+    if C_NamePlate and C_NamePlate.GetNamePlateForUnit then
+        for i = 1, 40 do
+            local token = 'nameplate'..i
+            local hit = check(token)
+            if hit then return hit end
+        end
+    end
+    -- party/raid and their targets
+    for i = 1, 4 do
+        local t = 'party'..i..'target'
+        local hit = check(t)
+        if hit then return hit end
+    end
+    for i = 1, 40 do
+        local t = 'raid'..i..'target'
+        local hit = check(t)
+        if hit then return hit end
+    end
+    return nil
+end
+
+-- Resolve a source name for a GUID, if we can map it to a visible unit; otherwise returns '<unbekannt>'
+local function _grail_source_name_from_guid(guid)
+    local token = _grail_find_unit_token_by_guid(guid)
+    if token then
+        local name = UnitName(token)
+        return _grail_safe_tostring(name)
+    end
+    -- fallbacks: for player GUIDs we can attempt GetPlayerInfoByGUID
+    local _, _, _, _, _, name = GetPlayerInfoByGUID and GetPlayerInfoByGUID(guid) or nil
+    if name then return _grail_safe_tostring(name) end
+    return '<unbekannt>'
+end
+
+-- Lightweight loot-event frame; only logs source (Name, NPCID) when a loot slot's name is tainted
+(function()
+    if not Grail._secretLootSourceLoggerFrame then
+        local f = CreateFrame('Frame', 'GrailSecretLootSourceLoggerFrame')
+        f:RegisterEvent('LOOT_OPENED')
+        f:SetScript('OnEvent', function()
+            local numItems = GetNumLootItems and GetNumLootItems() or 0
+            if not numItems or numItems <= 0 then return end
+            for i = 1, numItems do
+                -- We probe the item name safely; if it is tainted/secret, we log the source only.
+                local okInfo, itemInfo = pcall(GetLootSlotInfo, i)
+                local itemName
+                if okInfo and type(itemInfo) == 'table' then
+                    itemName = itemInfo.item -- new API format
+                else
+                    local _, legacyName = nil, nil
+                    _, legacyName = GetLootSlotInfo(i)
+                    itemName = legacyName
+                end
+                local okName = pcall(function() return tostring(itemName) end)
+                if not okName then
+                    -- Name is tainted → resolve loot sources and log only (Name, NPCID)
+                    local okSrc, sources = pcall(GetLootSourceInfo, i)
+                    if okSrc and sources and #sources > 0 then
+                        -- GetLootSourceInfo returns a sequence of {guid1, qty1, guid2, qty2, ...}
+                        for s = 1, #sources, 2 do
+                            local guid = sources[s]
+                            local npcId = _grail_npc_id_from_guid(guid)
+                            local srcName = _grail_source_name_from_guid(guid)
+                            Grail:_AddChatMessage(string.format('Grail: Loot-Quelle (tainted) – Name=%s, NPCID=%s', srcName, tostring(npcId or 'n/a')))
+                        end
+                    else
+                        -- Fallback: keine Quelle ermittelbar
+                        Grail:_AddChatMessage('Grail: Loot-Quelle (tainted) – keine Quelle gefunden')
+                    end
+                end
+            end
+        end)
+        Grail._secretLootSourceLoggerFrame = f
+    end
+end)()
+
+-- =====================
+
+
+-- >>> Patch helper: safe tostring that never taints or errors <<<
+if not Grail._grail_safe_tostring then
+	function Grail:_grail_safe_tostring(val)
+		local ok, res = pcall(function() return tostring(val) end)
+		if ok and res ~= nil then return res else return "<secret>" end
+	end
+end
+-- <<< End helper >>>
+
