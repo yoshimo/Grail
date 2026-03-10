@@ -609,28 +609,6 @@ local assert, wipe = assert, wipe
 local floor, mod = math.floor, mod
 
 
--- BEGIN Grail_SafeGetAuraDataByIndex wrapper
--- Safe wrapper that skips secret aura indices and logs (only when Grail debug is ON)
-local function Grail_SafeGetAuraDataByIndex(unit, index, filter)
-    -- Check for secret aura indices using Blizzard's secrecy API (Retail/TWW)
-    if C_Secrets and C_Secrets.ShouldUnitAuraIndexBeSecret then
-        local ok, secret = pcall(C_Secrets.ShouldUnitAuraIndexBeSecret, unit, index, filter)
-        if ok and secret then
-            -- Log skip only if Grail debug is enabled
-                local u = tostring(unit)
-                local f = filter and tostring(filter) or 'nil'
-            --    print(string.format('|cffff8800Grail|r: Secret Aura index (skipped) -> unit=%s, index=%s, filter=%s', u, tostring(index), f))
-            return nil
-        end
-    end
-    -- Fallback to Blizzard API when available
-    if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
-        local info = Grail_SafeGetAuraDataByIndex(unit, index, filter)
-        return info
-    end
-    return nil
-end
--- END Grail_SafeGetAuraDataByIndex wrapper
 
 --	The Blizzard API is separated out so it is easier to see what API is being used
 
@@ -678,6 +656,8 @@ local UnitName							= UnitName
 local UnitRace							= UnitRace
 local UnitSex							= UnitSex
 
+
+local BLIZZ_UnitAura = _G.UnitAura
 local BOOKTYPE_SPELL					= BOOKTYPE_SPELL
 local DAILY								= DAILY
 local LOCALIZED_CLASS_NAMES_FEMALE		= LOCALIZED_CLASS_NAMES_FEMALE
@@ -1197,7 +1177,7 @@ experimental = false,	-- currently this implementation does not reduce memory si
 						end
 					end
 
-					self.existsClassic = self.existsClassicBasic or self.existsClassicWrathOfTheLichKing or self.existsClassicCataclysm or self.existsClassicPandaria
+					self.existsClassic = self.existsClassicBasic or self.existsClassicBurningCrusade or self.existsClassicWrathOfTheLichKing or self.existsClassicCataclysm or self.existsClassicPandaria
 
 					GrailDatabase[self.environment] = GrailDatabase[self.environment] or {}
 					self.GDE = GrailDatabase[self.environment]
@@ -1262,7 +1242,7 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							['U'] = { 'Scourge',  'Undead',    'Undead',    0x00400000 },
 							}
 						self.bitMaskRaceAll = 0x01e78000
-						if self.existsClassicWrathOfTheLichKing or self.existsClassicCataclysm or self.existsClassicPandaria then
+						if self.existsClassicWrathOfTheLichKing or self.existsClassicCataclysm or self.existsClassicPandaria or self.existsClassicBurningCrusade then
 							self.races['B'] = { 'BloodElf', 'Blood Elf', 'Blood Elf', 0x02000000 }
 							self.races['D'] = { 'Draenei',  'Draenei',   'Draenei',   0x00080000 }
 							self.bitMaskRaceAll = 0x03ef8000
@@ -1534,6 +1514,7 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							[2346] = true, -- Undermine
 							-- 11.2
 							[2371] = true, -- K'aresh
+							[2451] = true, -- Arathi Highlands (Catchup Experience Version)
 
 							-- TWW Dungeons (S2)
 							[2315] = true, -- Isle of Dorn >Die Brutstätte: Der Brustättenlandeplatz (lvl1)
@@ -1585,8 +1566,40 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							[2408] = true, --Schallende Tiefen> Befreiung von Lorenhall (11.1):Das Glückliche Herz (lvl4)
 							[2411] = true, --Schallende Tiefen> Befreiung von Lorenhall (11.1):Der Pikturm (lvl5)
 							[2409] = true, --Schallende Tiefen> Befreiung von Lorenhall (11.1):Das Haus des Chroms (lvl6)
-
+							-- Midnight
+							[947]  = true, -- Housing Area
+							[2351] = true, -- Klingenschluchtküste
+							[2393] = true, -- Silvermoon (Midnight)
+							[2395] = true, -- Quel'thalas: Eversong Woods (Midnight)
+							[2405] = true, -- Quel'thalas: Voidstorm
+							[2413] = true, -- Quel'thalas: Harandar
+							[2424] = true, -- Isle of Quel'danas - Isle of Quel'danas
+							[2444] = true, -- Isle of Quel'danas - Slayer's Rise
+							[2537] = true, -- Isle of Quel'danas? - TODO: Yoshimo: check (internally named "unknown")
+							[2565] = true, -- Isle of Quel'danas - Isle of Quel'danas , during the MN intro questchain from Liadrin id:236693
+							[2437] = true, -- Quel'thalas: Zul'Aman (Midnight)
+							[2536] = true, -- Quel'thalas: Zul'Aman (Midnight): Atal'Aman
+							[2432] = true, -- Isle of Quel'danas - Isle of Quel'danas ( while on quest 88719)
+							[2565] = true, -- Isle of Quel'danas - Isle of Quel'danas ( while on quest 86834)
+							[2579] = true, -- Isle of Quel'danas - Eversong Woods - Gruft von Wartha'nan
+							[2438] = true, -- Tirisfal: Scarlet Halls (during 86842)
+							[2541] = true, -- The Arcantina
+							-- Midnight dungeons
+							[2433] = true, -- Silvermoon: Mördergasse: Mördergasse(Level 1)
+							[2435] = true, -- Silvermoon: Mördergasse: Schwarzschauer (Level 2)
+							[2434] = true, -- Silvermoon: Mördergasse: Terrasse der Auguren (Level 3)
+							[2492] = true, -- Eversong Woods: Windrunnter Tower: Die Promenaade (Level 1)
+							[2493] = true, -- Eversong Woods: Windrunnter Tower: Vereesas Rast: Oberer Bereich(Level 2)
+							[2494] = true, -- Eversong Woods: Windrunnter Tower: Vereesas Rast: Unterer Bereich(Level 3)
+							[2496] = true, -- Eversong Woods: Windrunnter Tower: Sylvanas' Gemächer: Oberer Bereich(Level 4)
+							[2497] = true, -- Eversong Woods: Windrunnter Tower: Sylvanas' Gemächer: Unterer Bereich(Level 5)
+							[2498] = true, -- Eversong Woods: Windrunnter Tower: Windläufergewölbe (Level 6)
+							[2499] = true, -- Eversong Woods: Windrunnter Tower: Die Spitze (Level 7)
+							-- Midnight Delves
+							[2502]  = true, -- Eversong Woods: Schattenenklave
+							[2575]  = true, -- Harandar: Kluft der Erinnerung- Unterer Wurzelpfad
 						}
+						
 
 						self.quest.name[51570]=Grail:_GetMapNameByID(862)	-- Zuldazar
 						self.quest.name[51571]=Grail:_GetMapNameByID(863)	-- Nazmir
@@ -2019,7 +2032,28 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							GrailDatabase[databaseKeys[i]] = nil
 						end
 					end
+--[[
+					
+				-- ===== Grail: Defaults for the first start without saved variables =====
+				-- Only set if the key does not exist yet(== nil),
+				-- to avoid overwriting user settings
+				if self.GDE.treasures == nil then
+					self.GDE.treasures = true
+				end
+				if self.GDE.tracking == nil then
+					self.GDE.tracking = true
+				end
+				--if self.GDE.debug == nil then
+				--	self.GDE.debug = true
+				--end
 
+				-- immediately set Observer and Hooks consistently
+				Grail:_QuestCompleteCheckObserve(self.GDE.debug)
+				Grail:_QuestAcceptCheckObserve(self.GDE.debug)
+				Grail:_LevelGainedQuestCheckObserve(self.GDE.debug)
+				Grail:_UpdateTrackingObserver()
+				-- ===== End Defaults =====
+--]]
 					-- We are defaulting to making events in combat delayed, and only doing it once in case the user decides to override.
 					if nil == self.GDE.delayEventsHandled then
 						self.GDE.delayEvents = true
@@ -2117,6 +2151,11 @@ experimental = false,	-- currently this implementation does not reduce memory si
 						frame:RegisterEvent("ACHIEVEMENT_EARNED")		-- e.g., quest 29452 can be gotten if certain achievements are complete
 						frame:RegisterEvent("CRITERIA_EARNED")		-- for debugging to see when criteria are earned in MoP
 					end
+
+					if self.existsClassicPandaria or self.existsMainline then
+						frame:RegisterEvent("CRITERIA_COMPLETE")
+					end
+
 					frame:RegisterEvent("CHAT_MSG_COMBAT_FACTION_CHANGE")	-- needed for quest status caching
 					frame:RegisterEvent("CHAT_MSG_SKILL")	-- needed for quest status caching
 					if self.capabilities.usesGarrisons then
@@ -2140,6 +2179,7 @@ experimental = false,	-- currently this implementation does not reduce memory si
 						frame:RegisterEvent("LOOT_CLOSED")		-- Timeless Isle chests
 					end
 					frame:RegisterEvent("LOOT_OPENED")		-- support for Timeless Isle chests
+					frame:RegisterEvent("ITEM_TEXT_BEGIN")		-- support for tracking book reads in Eversong Woods (Midnight)
 					frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 frame:RegisterEvent("GOSSIP_CONFIRM")	-- gossipIndex, text, cost
 frame:RegisterEvent("GOSSIP_ENTER_CODE")	-- gossipIndex
@@ -2405,7 +2445,7 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 				local questToComplete = self._ItemTextBeginList[npcId]
 				if nil ~= questToComplete then
 					self:_MarkQuestComplete(questToComplete, true)
-					local message = strformat("ITEM_TEXT_READY completes %d", questToComplete)
+					local message = strformat("ITEM_TEXT_READY completes %d | Target: %s (%d) | Coords: %s", questToComplete, tostring(targetName), tonumber(npcId) or -1, tostring(coordinates))
 					if self.GDE.debug then
 						print(message)
 					end
@@ -2429,7 +2469,18 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 					end
 				end
 			end,
-
+			['ITEM_TEXT_BEGIN'] = function(self, frame, ...)
+				local currentMapAreaId = Grail.GetCurrentMapAreaID()
+				if self.zonesForLootingTreasure[currentMapAreaId] then
+					self.lootingGUID = GetLootSourceInfo(1)
+					local text = GameTooltipTextLeft1
+					self.lootingName = text and text:GetText() or self.defaultUnfoundLootingName
+					if not self.doneProcessingBackup then
+						self:_ProcessServerBackup(true)
+						self.doneProcessingBackup = true
+					end
+				end
+			end,
 			['LOOT_CLOSED'] = function(self, frame, ...)
 				local currentMapAreaId = Grail.GetCurrentMapAreaID()
 				if self.zonesForLootingTreasure[currentMapAreaId] then
@@ -2502,6 +2553,8 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 						self:_HandleMaxExpansionLevelUpdated()
 					elseif 'MIN_EXPANSION_LEVEL_UPDATED' == type then
 						self:_HandleMinExpansionLevelUpdated()
+					elseif 'CRITERIA_COMPLETE' == type then
+						self:_HandleCriteriaComplete()
 					end
 					tremove(self.delayedEvents, 1)
 					self.delayedEventsCount = self.delayedEventsCount - 1
@@ -2523,6 +2576,18 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 
 			['PLAYER_ENTERING_WORLD'] = function(self, frame)
 			print("|cFF00FF00Grail|r: needs your help! Consider running /grail tracking & /Grail treasures ON and submit your data regularly")
+			--[[
+				-- Warn,if a recommended option is OFF
+				local offList = {}
+				if not self.GDE.tracking then table.insert(offList, "tracking") end
+				if not self.GDE.treasures then table.insert(offList, "treasures") end
+				if not self.GDE.debug then table.insert(offList, "debug") end
+				if #offList > 0 then
+					print(string.format("|cFFFF8800Grail|r: Hint – following options are OFF: %s. Recommended: /grail %s ON.",
+						 table.concat(offList, ", "),
+						 table.concat(offList, " & /grail ")))
+				end
+			--]]
 				if self.capabilities.usesArtifacts then
 					frame:RegisterEvent("ARTIFACT_XP_UPDATE")
 				end
@@ -2818,7 +2883,7 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 		--
 		existsClassicBasic = (WOW_PROJECT_ID == WOW_PROJECT_CLASSIC),
 		-- I don't think we need to know about Classic Burning Crusade any more so am removing this...
---		existsClassicBurningCrusade = (WOW_PROJECT_ID == WOW_PROJECT_BURNING_CRUSADE_CLASSIC),
+		existsClassicBurningCrusade = (WOW_PROJECT_ID == WOW_PROJECT_BURNING_CRUSADE_CLASSIC),
 		existsClassicWrathOfTheLichKing = (WOW_PROJECT_ID == WOW_PROJECT_WRATH_CLASSIC),
 		existsClassicCataclysm = (WOW_PROJECT_ID == WOW_PROJECT_CATACLYSM_CLASSIC),
 		existsClassicEra = (WOW_PROJECT_ID == WOW_PROJECT_CLASSIC),	-- _classic_era_	"World of Warcraft Classic"
@@ -3269,8 +3334,7 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 			[8] = { 2103, 2111, 2120, 2156, 2157, 2158, 2159, 2160, 2161, 2162, 2163, 2164, 2233, 2264, 2265, 2371, 2372, 2373, 2374, 2375, 2376, 2377, 2378, 2379, 2380, 2381, 2382, 2383, 2384, 2385, 2386, 2387, 2388, 2389, 2390, 2391, 2392, 2395, 2396, 2397, 2398, 2400, 2401, 2415, 2417, 2427, },
 			[9] = { 2407, 2410, 2413, 2432, 2439, 2445, 2446, 2447, 2448, 2449, 2450, 2451, 2452, 2453, 2454, 2455, 2456, 2457, 2458, 2459, 2460, 2461, 2462, 2463, 2464, 2465, 2469, 2470, 2472, 2478, },
 			[10] = { 2503, 2507, 2509, 2510, 2511, 2512, 2513, 2517, 2518, 2520, 2522, 2523, 2524, 2526, 2542, 2544, 2550, 2553, 2554, 2555, 2557, 2564, 2568, 2574, 2593, 2615, },
-			[11] = { 2569, 2570, 2590, 2594, 2600, 2601, 2605, 2607, 2640, 2644, 2645, 2653, 2658, 2663, 2664, 2665, 2666, 2669, 2671, 2673, 2675, 2677, 2683, 2685, 2688, 2693, 2722, 2736, 2739, 2766, 2767, }, -- TWW
-			[12] = { 2696, 2698, 2699, 2704, 2710, 2711, 2712, 2713, 2714, 2742, 2744, 2764, 2770, },	-- Midnight
+			[11] = { 2570, 2590, 2594, 2600, 2601, 2605, 2607, 2640, 2644, 2645, },
 			},
 
 		-- These reputations use the friendship names instead of normal reputation names
@@ -3616,7 +3680,6 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
             ["9FD"] = "XXX", -- 2557
             ["A04"] = "Loamm Niffen", -- 2564
             ["A08"] = "Glimmerogg Racer", -- 2568
-            ["A09"] = "The War Within", -- 2569
             ["A0A"] = "Hallowfall Arathi", -- 2570
             ["A0E"] = "Dream Wardens", -- 2574
             ["A1E"] = "Council of Dornogal", -- 2590
@@ -3630,39 +3693,6 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
             ["A50"] = "Brann Bronzebeard", -- 2640
             ["A54"] = "Delves: Season 1", -- 2644
             ["A55"] = "Earthen", -- 2645
-            ["A5D"] = "The Cartels of Undermine", -- 2653
-            ["A62"] = "The K'aresh Trust", -- 2658
-            ["A67"] = "Meerah", -- 2663
-            ["A68"] = "Flynn Fairwind", -- 2664
-            ["A69"] = "Lillistrasza", -- 2665
-            ["A6A"] = "Roasts and Boasts", -- 2666
-            ["A6D"] = "Darkfuse Solutions", -- 2669
-            ["A6F"] = "Venture Company", -- 2671
-            ["A71"] = "Bilgewater Cartel", -- 2673
-            ["A73"] = "Blackwater Cartel", -- 2675
-            ["A75"] = "Steamwheedle Cartel", -- 2677
-            ["A7B"] = "Delves: Season 2", -- 2683
-            ["A7D"] = "Gallagio Loyalty Rewards Club", -- 2685
-            ["A80"] = "Flame's Radiance", -- 2688
-            ["A85"] = "Delver's Journey (Season 1)", -- 2693
-            ["A88"] = "Amani Tribe", -- 2696
-            ["A8A"] = "Midnight", -- 2698
-            ["A8B"] = "The Singularity", -- 2699
-            ["A90"] = "Hara'ti", -- 2704
-            ["A96"] = "Silvermoon Court", -- 2710
-            ["A97"] = "Magisters", -- 2711
-            ["A98"] = "Blood Knights", -- 2712
-            ["A99"] = "Farstriders", -- 2713
-            ["A9A"] = "Shades of the Row", -- 2714
-            ["AA2"] = "Delves: Season 3", -- 2722
-            ["AB0"] = "Manaforge Vandals", -- 2736
-            ["AB3"] = "Delves: Coffer Key Shards Conversion", -- 2739
-            ["AB6"] = "Delves: Season 1", -- 2742
-            ["AB8"] = "Valeera Sanguinar", -- 2744
-            ["ACC"] = "Prey: Season 1", -- 2764
-            ["ACE"] = "Brawl'gar Arena", -- 2766
-            ["ACF"] = "Bizmo's Brawlpub", -- 2767
-            ["AD2"] = "Slayer's Duellum", -- 2770
 			},
 
 		reputationMappingFaction = {
@@ -3952,7 +3982,6 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
             ["9FD"] = "Neutral", -- 2555    -- TODO: Determine faction
             ["A04"] = "Neutral", -- 2564    -- TODO: Determine faction
             ["A08"] = "Neutral", -- 2568    -- TODO: Determine faction
-            ["A09"] = "Neutral", -- 2569    -- TODO: Determine faction
             ["A0A"] = "Neutral", -- 2570    -- TODO: Determine faction
             ["A0E"] = "Neutral", -- 2574    -- TODO: Determine faction
             ["A1E"] = "Neutral", -- 2590    -- TODO: Determine faction
@@ -3966,38 +3995,6 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
             ["A50"] = "Neutral", -- 2640    -- TODO: Determine faction
             ["A54"] = "Neutral", -- 2644    -- TODO: Determine faction
             ["A55"] = "Neutral", -- 2645    -- TODO: Determine faction
-            ["A5D"] = "Neutral", -- 2653    -- TODO: Determine faction
-            ["A62"] = "Neutral", -- 2658    -- TODO: Determine faction
-            ["A67"] = "Neutral", -- 2663    -- TODO: Determine faction
-            ["A68"] = "Neutral", -- 2664    -- TODO: Determine faction
-            ["A69"] = "Neutral", -- 2665    -- TODO: Determine faction
-            ["A6A"] = "Neutral", -- 2666    -- TODO: Determine faction
-            ["A6D"] = "Neutral", -- 2669    -- TODO: Determine faction
-            ["A6F"] = "Neutral", -- 2671    -- TODO: Determine faction
-            ["A71"] = "Neutral", -- 2673    -- TODO: Determine faction
-            ["A73"] = "Neutral", -- 2675    -- TODO: Determine faction
-            ["A75"] = "Neutral", -- 2677    -- TODO: Determine faction
-            ["A7B"] = "Neutral", -- 2683    -- TODO: Determine faction
-            ["A80"] = "Neutral", -- 2688    -- TODO: Determine faction
-            ["A85"] = "Neutral", -- 2693    -- TODO: Determine faction
-            ["A88"] = "Neutral", -- 2696    -- TODO: Determine faction
-            ["A8A"] = "Neutral", -- 2698    -- TODO: Determine faction
-            ["A8B"] = "Neutral", -- 2699    -- TODO: Determine faction
-            ["A90"] = "Neutral", -- 2704    -- TODO: Determine faction
-            ["A96"] = "Neutral", -- 2710    -- TODO: Determine faction
-            ["A97"] = "Neutral", -- 2711    -- TODO: Determine faction
-            ["A98"] = "Neutral", -- 2712    -- TODO: Determine faction
-            ["A99"] = "Neutral", -- 2713    -- TODO: Determine faction
-            ["A9A"] = "Neutral", -- 2714    -- TODO: Determine faction
-            ["AA2"] = "Neutral", -- 2722    -- TODO: Determine faction
-            ["AB0"] = "Neutral", -- 2736    -- TODO: Determine faction
-            ["AB3"] = "Neutral", -- 2739    -- TODO: Determine faction
-            ["AB6"] = "Neutral", -- 2742    -- TODO: Determine faction
-            ["AB8"] = "Neutral", -- 2744    -- TODO: Determine faction
-            ["ACC"] = "Neutral", -- 2764    -- TODO: Determine faction
-            ["ACE"] = "Neutral", -- 2766    -- TODO: Determine faction
-            ["ACF"] = "Neutral", -- 2767    -- TODO: Determine faction
-            ["AD2"] = "Neutral", -- 2770    -- TODO: Determine faction
 			},
 
 		slashCommandOptions = {},
@@ -4184,7 +4181,7 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 			-- It would be great if we could support what is defined in the system, but it seems we cannot
 			-- and therefore if in Classic we limit ourselves to EXPANSION_NAME0 only.
 			if not self.existsClassic then
-				for expansionIndex = 0, 100 do
+				for expansionIndex = 1, 100 do
 					if nil == self:_ExpansionName(expansionIndex) then
 						break
 					end
@@ -6759,7 +6756,7 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 							elseif 'S' == code then
 								if 'P' ~= codeValue then
 									--	The inherent nature of an S code makes is such that only one has meaning, and R codes should not be combined
-									bitValue = self.races[codeValue][4]
+								bitValue = self.races[codeValue][4]
 									if nil ~= bitValue then
 										obtainersRaceValue = bitband(obtainersRaceValue, bitbnot(self.bitMaskRaceAll))
 										obtainersRaceValue = obtainersRaceValue + self.bitMaskRaceAll - bitValue
@@ -7446,7 +7443,7 @@ end
 
 		CurrentDateTime = function(self)
 			local date
-			if self.existsClassic then
+			if self.existsClassic and not self.existsClassicBurningCrusade then
 				date = C_DateAndTime.GetTodaysDate()
 				date.monthDay = date.day
 				date.weekday = date.weekDay	-- don't you just hate it when Blizzard API uses different capitalization!
@@ -8406,8 +8403,19 @@ end
 		_HandleEventAchievementEarned = function(self, achievementId)
 			self:_StatusCodeInvalidate(self.questStatusCache['A'][achievementId])
 			self:_NPCLocationInvalidate(self.npcStatusCache['A'][achievementId])
-			print("Grail Achievment handled with number: ", achievementId)
+			if self.GDE.debug then
+				print("Grail Achievment handled with number: ", achievementId)
+			end
 			self:_AddTrackingMessage("Achievement earned: ", achievementId)
+			self:_AddTrackingMessage("Coordinates earned: ", Grail:Coordinates())
+		end,
+
+		_HandleCriteriaComplete = function(self, criteriaID)
+			if self.GDE.debug then
+				print("Grail: Criteria earned with number: ", criteriaID)
+			end
+			self:_AddTrackingMessage("Criteria earned: ", criteriaID)
+			self:_AddTrackingMessage("Coordinates earned: ", Grail:Coordinates())
 		end,
 
 		_HandleEventMajorFactionUnlocked = function(self, factionId)
@@ -8488,15 +8496,20 @@ end
 			end
 -- And back to the original code...
 			if #newlyCompleted > 0 or Grail.GDE.debug then
-				local lootingNameToUse = self.lootingName or "NO LOOTING OBJECT"
+				local function _grail_is_secret_string(v) return not pcall(function() return tostring(v) end) end
+				local function _grail_safe_tostring(v) local ok,s=pcall(tostring,v); if ok then return s else return "<secret>" end end
+				local lootingNameIsSecret = _grail_is_secret_string(self.lootingName)
+				local lootingNameToUse = lootingNameIsSecret and "<secret>" or (self.lootingName or "NO LOOTING OBJECT")
+				if lootingNameIsSecret then Grail:_AddChatMessage("|cffffd100Grail: Loot-Objektname ist tainted - logge als <secret>|r") end
 				local guidParts = { strsplit('-', self.lootingGUID or "") }
-				if nil ~= guidParts and guidParts[1] == "GameObject" and self.lootingName ~= self.defaultUnfoundLootingName then
+				if nil ~= guidParts and guidParts[1] == "GameObject" and not lootingNameIsSecret and self.lootingName ~= self.defaultUnfoundLootingName then
 					local internalName = self:ObjectName(guidParts[6])
-					if self.lootingName ~= internalName then
+					local internalNameIsSecret = _grail_is_secret_string(internalName)
+					if not internalNameIsSecret and self.lootingName ~= internalName then
 						self:_LearnObjectName(guidParts[6], lootingNameToUse)
 					end
 				end
-				local message = "Looting from " .. (self.lootingGUID or "NO LOOTING GUID") .. " locale: " .. self.playerLocale .. " name: " .. lootingNameToUse
+				local message = "Looting from " .. (self.lootingGUID or "NO LOOTING GUID") .. " locale: " .. self.playerLocale .. " name: " .. lootingNameToUse .. " Coords: " .. Grail:Coordinates()
 				if self.GDE.debug then
 					print(message)
 				end
@@ -14088,3 +14101,164 @@ end
 		they have all been dailies.
 
 ]]--
+
+
+-- === Final Classic/Retail-safe UnitAura ===
+function Grail:UnitAura(unit, index, filter)
+    -- Retail path: use modern Aura API and skip secret aura indices (with debug print)
+    if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
+        if C_Secrets and C_Secrets.ShouldUnitAuraIndexBeSecret then
+            local ok, secret = pcall(C_Secrets.ShouldUnitAuraIndexBeSecret, unit, index, filter)
+            if ok and secret then
+               -- print("Grail Secret aura skipped ->", unit, index, filter)
+                return nil
+            end
+        end
+        local info = C_UnitAuras.GetAuraDataByIndex(unit, index, filter)
+        if info then return info.name, info.spellId end
+        return nil
+    end
+    -- Classic path: always call original Blizzard API (never self again)
+    if BLIZZ_UnitAura then
+        local name, _, _, _, _, _, _, _, _, boaSpellId, classicSpellId = BLIZZ_UnitAura(unit, index, filter)
+        local spellId = tonumber(classicSpellId or boaSpellId)
+        return name, spellId
+    end
+    return nil
+end
+-- === End Final UnitAura ===
+
+
+-- =====================
+-- Merge patch: Loot-Source logging ONLY when loot name is tainted (generated by M365 Copilot)
+-- No loot content logging, no aura logging. Logs only (SourceName, SourceNPCID) for slots where the item name is tainted/secret.
+
+-- Helper: add message to chat without tainting
+function Grail:_AddChatMessage(msg, r, g, b)
+    if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then
+        DEFAULT_CHAT_FRAME:AddMessage(tostring(msg), r or 1, g or 0.82, b or 0)
+    else
+        print(tostring(msg))
+    end
+end
+
+-- Helper: safely tostring values that might be protected/tainted
+local function _grail_safe_tostring(v)
+    local ok, s = pcall(tostring, v)
+    if ok then return s end
+    return "<secret>"
+end
+
+-- Parse NPCID out of a Unit GUID (Creature/Vehicle/Pet); returns number or nil
+local function _grail_npc_id_from_guid(guid)
+    if type(guid) ~= 'string' then return nil end
+    -- Expected format: Type-0-Server-Instance-Zone-\nNPCID-Spawn
+    local unitType, _, _, _, _, npcIdStr = strsplit('-', guid)
+    if unitType == 'Creature' or unitType == 'Vehicle' or unitType == 'Pet' then
+        local id = tonumber(npcIdStr)
+        return id
+    end
+    return nil
+end
+
+-- Try to find a UnitID token (e.g., 'target','mouseover','nameplate1', party/raid targets) for a given GUID
+local function _grail_find_unit_token_by_guid(guid)
+    if not guid then return nil end
+    local function check(token)
+        if UnitExists(token) and UnitGUID(token) == guid then return token end
+    end
+    -- quick candidates
+    local tokens = { 'target', 'mouseover', 'focus', 'npc' }
+    for _, t in ipairs(tokens) do
+        local hit = check(t)
+        if hit then return hit end
+    end
+    -- nameplates (retail)
+    if C_NamePlate and C_NamePlate.GetNamePlateForUnit then
+        for i = 1, 40 do
+            local token = 'nameplate'..i
+            local hit = check(token)
+            if hit then return hit end
+        end
+    end
+    -- party/raid and their targets
+    for i = 1, 4 do
+        local t = 'party'..i..'target'
+        local hit = check(t)
+        if hit then return hit end
+    end
+    for i = 1, 40 do
+        local t = 'raid'..i..'target'
+        local hit = check(t)
+        if hit then return hit end
+    end
+    return nil
+end
+
+-- Resolve a source name for a GUID, if we can map it to a visible unit; otherwise returns '<unbekannt>'
+local function _grail_source_name_from_guid(guid)
+    local token = _grail_find_unit_token_by_guid(guid)
+    if token then
+        local name = UnitName(token)
+        return _grail_safe_tostring(name)
+    end
+    -- fallbacks: for player GUIDs we can attempt GetPlayerInfoByGUID
+    local _, _, _, _, _, name = GetPlayerInfoByGUID and GetPlayerInfoByGUID(guid) or nil
+    if name then return _grail_safe_tostring(name) end
+    return '<unbekannt>'
+end
+
+-- Lightweight loot-event frame; only logs source (Name, NPCID) when a loot slot's name is tainted
+(function()
+    if not Grail._secretLootSourceLoggerFrame then
+        local f = CreateFrame('Frame', 'GrailSecretLootSourceLoggerFrame')
+        f:RegisterEvent('LOOT_OPENED')
+        f:SetScript('OnEvent', function()
+            local numItems = GetNumLootItems and GetNumLootItems() or 0
+            if not numItems or numItems <= 0 then return end
+            for i = 1, numItems do
+                -- We probe the item name safely; if it is tainted/secret, we log the source only.
+                local okInfo, itemInfo = pcall(GetLootSlotInfo, i)
+                local itemName
+                if okInfo and type(itemInfo) == 'table' then
+                    itemName = itemInfo.item -- new API format
+                else
+                    local _, legacyName = nil, nil
+                    _, legacyName = GetLootSlotInfo(i)
+                    itemName = legacyName
+                end
+                local okName = pcall(function() return tostring(itemName) end)
+                if not okName then
+                    -- Name is tainted → resolve loot sources and log only (Name, NPCID)
+                    local okSrc, sources = pcall(GetLootSourceInfo, i)
+                    if okSrc and sources and #sources > 0 then
+                        -- GetLootSourceInfo returns a sequence of {guid1, qty1, guid2, qty2, ...}
+                        for s = 1, #sources, 2 do
+                            local guid = sources[s]
+                            local npcId = _grail_npc_id_from_guid(guid)
+                            local srcName = _grail_source_name_from_guid(guid)
+                            Grail:_AddChatMessage(string.format('Grail: Loot-Quelle (tainted) – Name=%s, NPCID=%s', srcName, tostring(npcId or 'n/a')))
+                        end
+                    else
+                        -- Fallback: keine Quelle ermittelbar
+                        Grail:_AddChatMessage('Grail: Loot-Quelle (tainted) – keine Quelle gefunden')
+                    end
+                end
+            end
+        end)
+        Grail._secretLootSourceLoggerFrame = f
+    end
+end)()
+
+-- =====================
+
+
+-- >>> Patch helper: safe tostring that never taints or errors <<<
+if not Grail._grail_safe_tostring then
+	function Grail:_grail_safe_tostring(val)
+		local ok, res = pcall(function() return tostring(val) end)
+		if ok and res ~= nil then return res else return "<secret>" end
+	end
+end
+-- <<< End helper >>>
+
