@@ -1099,6 +1099,15 @@ experimental = false,	-- currently this implementation does not reduce memory si
 				-- Use persistent snapshots: by the time this event fires the state has
 				-- already changed, so a local before/after within this call would be identical.
 				local _vigNow = self:_VignetteSnapshot()
+				-- Phase 7: bootstrap protection. On the first VIGNETTES_UPDATED after
+				-- login the snapshot is nil, so every visible vignette would look
+				-- "appeared" and get queued in _recentlyAppearedVignettes — any rep
+				-- change in the next 120s would then mass-link them as false positives.
+				-- Commit the baseline silently and bail.
+				if next(self._persistentVigSnapshot or {}) == nil then
+					self._persistentVigSnapshot = _vigNow
+					return
+				end
 				-- Build a context label so we know what was happening when the vignette changed
 				local _ctx = 'VIGNETTES_UPDATED'
 				if nil ~= self.questTurningIn then
@@ -1106,9 +1115,6 @@ experimental = false,	-- currently this implementation does not reduce memory si
 				elseif nil ~= self.lootingGUID then
 					_ctx = _ctx .. strformat(' [during loot guid=%s]', self.lootingGUID)
 				end
-				-- _VignetteCompareAndLog is deferred to after link-writing:
-				-- if links are written, the compare is suppressed (redundant).
-				local _linksWritten = 0
 				-- Store disappeared vignettes keyed by spawn UID (last GUID segment) so
 				-- _HandleEventLootClosed can correlate them with the creature and its quests.
 				self._recentlyDisappearedVignettes = self._recentlyDisappearedVignettes or {}
@@ -1134,7 +1140,6 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							local timeToUse = cameInRange and (GetTime() - 120) or GetTime()  -- wider window for in-range
 							self._recentlyAppearedVignettes[spawnUID] = { guid=guid, name=info.name, vignetteType=info.vignetteType, time=timeToUse, coords=info.coords }
 							table.insert(_appearedThisUpdate, { guid=guid, name=info.name, spawnUID=spawnUID, cameInRange=cameInRange })
-							_linksWritten = _linksWritten + 1  -- suppress compare: vignette stored for future linking
 						end
 					end
 				end
@@ -1166,7 +1171,6 @@ experimental = false,	-- currently this implementation does not reduce memory si
 								local msg = strformat('VIGNETTE_REP_LINK (rep before vig): vignette=%s name=%s | %s', vigEntry.guid, tostring(vigEntry.name), _src)
 								print(msg)
 								self:_AddTrackingMessage(msg)
-								_linksWritten = _linksWritten + 1
 							end
 							self._recentlyAppearedVignettes[vigEntry.spawnUID] = nil
 						end
@@ -1184,6 +1188,16 @@ experimental = false,	-- currently this implementation does not reduce memory si
 					and (GetTime() - self._pendingBookVignetteContext.time) <= 5
 					and #_disappearedThisUpdate > 0 then
 					local bctx = self._pendingBookVignetteContext
+					-- Handover for the Light-Poller: the server often pushes the quest
+					-- completion AFTER VIGNETTES_UPDATED, so _ProcessServerCompare here
+					-- usually returns empty. The Light-Poller will pick the quest up
+					-- 0.x s later via QUEST_LOG_UPDATE and read this handover to write
+					-- a BOOK_QUEST_LINK with the correct book context.
+					self._recentBookHandover = {
+						bctx = bctx,
+						disappearedVigs = _disappearedThisUpdate,
+						time = GetTime(),
+					}
 					self._pendingBookVignetteContext = nil
 					local silentValue, manualValue = self.GDE.silent, self.manuallyExecutingServerQuery
 					self.GDE.silent, self.manuallyExecutingServerQuery = true, false
@@ -1199,6 +1213,8 @@ experimental = false,	-- currently this implementation does not reduce memory si
 							tostring(bctx.coordinates), table.concat(vigNames, ', '))
 						print(msg)
 						self:_AddTrackingMessage(msg)
+						-- Quest already linked synchronously — handover no longer needed for it.
+						self._recentBookHandover = nil
 					end
 					self:_ProcessServerBackup(true)
 					self.GDE.silent, self.manuallyExecutingServerQuery = silentValue, manualValue
@@ -1230,7 +1246,6 @@ experimental = false,	-- currently this implementation does not reduce memory si
 								local msg = strformat('VIGNETTE_QUEST_LINK (no loot): vignette=%s name=%s | %s', vigEntry.guid, tostring(vigEntry.name), _src)
 								print(msg)
 								self:_AddTrackingMessage(msg)
-								_linksWritten = _linksWritten + 1
 							end
 							self._recentlyDisappearedVignettes[vigEntry.spawnUID] = nil
 						end
@@ -1245,10 +1260,8 @@ experimental = false,	-- currently this implementation does not reduce memory si
 					and (GetTime() - self._pendingBookVignetteContext.time) > 5 then
 					self._pendingBookVignetteContext = nil
 				end
-				-- Only show compare if no links were written for this update
-				if _linksWritten == 0 then
-					self:_VignetteCompareAndLog(self._persistentVigSnapshot or {}, _vigNow, _ctx)
-				end
+				-- Phase 7: _VignetteCompareAndLog stub call removed; _ctx no longer used
+				-- but kept above for any future logging that may want the context label.
 				self._persistentVigSnapshot = _vigNow
 				-- Auto-update names for vignette links that have true instead of name
 				local db = GrailDatabase
@@ -2119,14 +2132,10 @@ experimental = false,	-- currently this implementation does not reduce memory si
 					--	if we are to do anything.  GOSSIP_SHOW will record the NPC and GOSSIP_CLOSED will reset it.
 					if nil ~= SelectGossipOption then -- workaround for Shadowlands
 					hooksecurefunc("SelectGossipOption", function(index, text, confirm)
-						-- >>>QUESTPIN_DEBUG: capture pool snapshot before gossip quest completes
-						if not self._questPinSnapshotBefore then
-							-- Use persistent snapshot as before-state: pool pin may be gone already
-							self._questPinSnapshotBefore = self._persistentPinSnapshot or self:_QuestPinPoolSnapshot()
-							self._questPinTrigger       = 'GOSSIP_COMPLETE'
-							self._questPinTriggerDetail = strformat('gossipIndex=%d', index)
-						end
-						-- >>>QUESTPIN_DEBUG_END
+						-- Phase 5: a gossip option can complete a quest -> capture pre-action
+						-- baseline so the subsequent QUEST_TURNED_IN/QUEST_ACCEPTED diff has
+						-- a valid before-state. (Replaces the legacy _questPinSnapshotBefore.)
+						self:_CapturePinActionBaseline('GOSSIP_COMPLETE')
 						local questToComplete = nil
 						local gossipTable = self.currentGossipNPCId and self.gossipNPCs[self.currentGossipNPCId] or nil
 						if gossipTable then
@@ -3100,6 +3109,604 @@ experimental = false,	-- currently this implementation does not reduce memory si
 					end)
 					-- >>>VIGNETTE_DEBUG_END
 
+					-- >>>PHASE8_BEGIN: /grail prune-pinlinks — read-only report for now.
+					-- Classifies entries in db.questPinLinks against known phantom patterns
+					-- accumulated before Phase 5/Phase 3 fixes landed. Apply/dry/restore are
+					-- not implemented yet — start with report to validate the heuristics.
+					self:RegisterSlashOption("prune-pinlinks", "|cFF00FF00prune-pinlinks|r |cFFFF8C00[report|dry]|r => analyze db.questPinLinks for legacy/phantom entries (read-only)", function(msg)
+						local db = GrailDatabase
+						if not db.questPinLinks or not next(db.questPinLinks) then
+							print('|cFFFFFF00prune-pinlinks|r: db.questPinLinks is empty')
+							return
+						end
+						local sub = strmatch(msg or '', 'prune%-pinlinks%s+(%S+)') or 'report'
+						if sub ~= 'report' and sub ~= 'dry' and sub ~= 'apply' and sub ~= 'restore' then
+							print(strformat('|cFFFFFF00prune-pinlinks|r: unknown sub-command "%s" (try: report, dry, apply, apply force, restore)', sub))
+							return
+						end
+
+						-- RESTORE-Pfad: stellt db.questPinLinks aus dem letzten apply-Backup wieder her.
+						if sub == 'restore' then
+							if not db.questPinLinksBackup then
+								print('|cFFFFFF00prune-pinlinks restore|r: kein Backup gefunden — apply wurde noch nicht ausgeführt.')
+								return
+							end
+							local restored = 0
+							db.questPinLinks = {}
+							for k in pairs(db.questPinLinksBackup) do
+								db.questPinLinks[k] = true
+								restored = restored + 1
+							end
+							db.questPinGuidIndex = {}
+							for k, v in pairs(db.questPinGuidIndexBackup or {}) do
+								db.questPinGuidIndex[k] = v
+							end
+							local appliedTime = db.pruneApplyTime
+							db.questPinLinksBackup = nil
+							db.questPinGuidIndexBackup = nil
+							db.pruneApplyTime = nil
+							db.pruneApplyDeleted = nil
+							db.pruneApplyReclassified = nil
+							-- Drop the cached link-index so it gets rebuilt from db.Tracking on next use.
+							self._questPinLinkIndexBuilt = nil
+							print(strformat('|cFFFFFF00prune-pinlinks restore|r: %d entries restored (backup from %s)',
+								restored, appliedTime and date('%Y-%m-%d %H:%M:%S', appliedTime) or 'unknown'))
+							return
+						end
+
+						-- DRY-Pfad: detaillierter Plan, was apply tun würde. Schreibt nichts.
+						if sub == 'dry' then
+							-- Reconstruct pinKey for events: '<pinType>:<questId>'.
+							-- Falls back to 'offer:<id>' when pinType is missing (legacy events).
+							local eventsByPin = {}
+							if db.questPinEvents then
+								for _, ev in ipairs(db.questPinEvents) do
+									if ev.questId then
+										local pk = strformat('%s:%d', ev.pinType or 'offer', ev.questId)
+										eventsByPin[pk] = eventsByPin[pk] or {}
+										table.insert(eventsByPin[pk], ev)
+										-- Index also under offer: in case the link key uses offer:
+										-- while the event was logged with hub_offer/etc.
+										if ev.pinType and ev.pinType ~= 'offer' then
+											local alt = strformat('offer:%d', ev.questId)
+											eventsByPin[alt] = eventsByPin[alt] or {}
+											table.insert(eventsByPin[alt], ev)
+										end
+									end
+								end
+							end
+							-- Action extractor: maps event.trigger/triggerDetail to 'accept:X' / 'turnin:X'.
+							local function extractAction(ev)
+								local t = ev.trigger
+								if not t then return nil end
+								if strsub(t, 1, 7) == 'accept:' or strsub(t, 1, 7) == 'turnin:' then return t end
+								local td = ev.triggerDetail or ''
+								local q = strmatch(td, 'quest=(%d+)') or strmatch(td, 'accept_quests=(%d+)') or strmatch(td, 'quests=(%d+)')
+								if not q then return nil end
+								if t == 'QUEST_ACCEPTED_DELAYED' or t == 'WORLD_MAP_OPEN_ACCEPT' then return 'accept:'..q end
+								if t == 'QUEST_TURNED_IN_DELAYED' or t == 'QUEST_TURNED_IN' or t == 'QUEST_REMOVED'
+								   or t == 'WORLD_MAP_OPEN' or t == 'WORLD_MAP_SETMAPID' or t == 'PLAYER_ENTERING_WORLD' then
+									return 'turnin:'..q
+								end
+								return nil
+							end
+							local plan = { delete = {}, reclassify = {} }
+							local keysByPinAccept = {}
+							for key in pairs(db.questPinLinks) do
+								local pinKey, questStr = strmatch(key, '^([^|]+)|quests=(.-)%s*|%s*coords=')
+								if pinKey then
+									if strfind(questStr, '|transition:', 1, true) then
+										table.insert(plan.delete, { key=key, reason='legacy_transition' })
+									elseif questStr == 'none' then
+										table.insert(plan.delete, { key=key, reason='none_appeared' })
+									elseif questStr == 'none|disappeared' then
+										local action
+										local events = eventsByPin[pinKey]
+										if events then
+											for _, ev in ipairs(events) do
+												local a = extractAction(ev)
+												if a then action = a; break end
+											end
+										end
+										if action then
+											table.insert(plan.reclassify, { key=key, newAction=action })
+										else
+											table.insert(plan.delete, { key=key, reason='none_disappeared_orphan' })
+										end
+									else
+										local acceptId = strmatch(questStr, '^accept:(%d+)')
+										if acceptId then
+											keysByPinAccept[pinKey] = keysByPinAccept[pinKey] or {}
+											keysByPinAccept[pinKey][acceptId] = keysByPinAccept[pinKey][acceptId] or {}
+											table.insert(keysByPinAccept[pinKey][acceptId], key)
+										end
+									end
+								end
+							end
+							-- accept_cluster: keep earliest 2 acceptIds by event timestamp, delete rest.
+							for pinKey, byQid in pairs(keysByPinAccept) do
+								local qids = {}
+								for qid in pairs(byQid) do table.insert(qids, qid) end
+								if #qids >= 3 then
+									local qidTime = {}
+									local events = eventsByPin[pinKey]
+									if events then
+										for _, ev in ipairs(events) do
+											local a = extractAction(ev)
+											if a and strsub(a, 1, 7) == 'accept:' then
+												local q = strsub(a, 8)
+												if byQid[q] and (not qidTime[q] or ev.time < qidTime[q]) then
+													qidTime[q] = ev.time
+												end
+											end
+										end
+									end
+									local timed = {}
+									for _, qid in ipairs(qids) do
+										table.insert(timed, { qid=qid, time=qidTime[qid] or math.huge })
+									end
+									table.sort(timed, function(a, b) return a.time < b.time end)
+									for i = 3, #timed do
+										for _, k in ipairs(byQid[timed[i].qid]) do
+											table.insert(plan.delete, { key=k, reason='accept_cluster_excess' })
+										end
+									end
+								end
+							end
+							-- Display
+							local nDel, nRec = #plan.delete, #plan.reclassify
+							print(strformat('|cFFFFFF00prune-pinlinks dry|r: would delete=%d  would reclassify=%d  affected=%d',
+								nDel, nRec, nDel + nRec))
+							local byReason = {}
+							for _, item in ipairs(plan.delete) do byReason[item.reason] = (byReason[item.reason] or 0) + 1 end
+							for r, c in pairs(byReason) do print(strformat('  delete[%s]: %d', r, c)) end
+							if nRec > 0 then print(strformat('  reclassify[none_disappeared -> action]: %d', nRec)) end
+							print('|cFF00FF00sample deletes (up to 8):|r')
+							for i = 1, math.min(8, nDel) do
+								local it = plan.delete[i]
+								print(strformat('  [%s] %s', it.reason, it.key))
+							end
+							if nRec > 0 then
+								print('|cFF00FF00sample reclassifies (up to 8):|r')
+								for i = 1, math.min(8, nRec) do
+									local it = plan.reclassify[i]
+									print(strformat('  -> %s  ::  %s', it.newAction, it.key))
+								end
+							end
+							return
+						end
+
+						-- APPLY-Pfad: gleicher Plan wie dry, plus Backup + Schreibvorgänge.
+						-- "apply" verweigert wenn schon ein Backup existiert; "apply force"
+						-- überschreibt das Backup. Restore mit /grail prune-pinlinks restore.
+						if sub == 'apply' then
+							local force = (strfind(msg or '', 'apply%s+force', 1, false) ~= nil)
+							if db.questPinLinksBackup and not force then
+								print('|cFFFF8800prune-pinlinks apply|r: Backup vorhanden. Erst "restore" oder mit "apply force" überschreiben.')
+								return
+							end
+							-- Plan aufbauen (identisch zum dry-Pfad)
+							local eventsByPin = {}
+							if db.questPinEvents then
+								for _, ev in ipairs(db.questPinEvents) do
+									if ev.questId then
+										local pk = strformat('%s:%d', ev.pinType or 'offer', ev.questId)
+										eventsByPin[pk] = eventsByPin[pk] or {}
+										table.insert(eventsByPin[pk], ev)
+										if ev.pinType and ev.pinType ~= 'offer' then
+											local alt = strformat('offer:%d', ev.questId)
+											eventsByPin[alt] = eventsByPin[alt] or {}
+											table.insert(eventsByPin[alt], ev)
+										end
+									end
+								end
+							end
+							local function extractAction(ev)
+								local t = ev.trigger
+								if not t then return nil end
+								if strsub(t, 1, 7) == 'accept:' or strsub(t, 1, 7) == 'turnin:' then return t end
+								local td = ev.triggerDetail or ''
+								local q = strmatch(td, 'quest=(%d+)') or strmatch(td, 'accept_quests=(%d+)') or strmatch(td, 'quests=(%d+)')
+								if not q then return nil end
+								if t == 'QUEST_ACCEPTED_DELAYED' or t == 'WORLD_MAP_OPEN_ACCEPT' then return 'accept:'..q end
+								if t == 'QUEST_TURNED_IN_DELAYED' or t == 'QUEST_TURNED_IN' or t == 'QUEST_REMOVED'
+								   or t == 'WORLD_MAP_OPEN' or t == 'WORLD_MAP_SETMAPID' or t == 'PLAYER_ENTERING_WORLD' then
+									return 'turnin:'..q
+								end
+								return nil
+							end
+							local plan = { delete = {}, reclassify = {} }
+							local keysByPinAccept = {}
+							for key in pairs(db.questPinLinks) do
+								local pinKey, questStr = strmatch(key, '^([^|]+)|quests=(.-)%s*|%s*coords=')
+								if pinKey then
+									if strfind(questStr, '|transition:', 1, true) then
+										table.insert(plan.delete, { key=key, reason='legacy_transition' })
+									elseif questStr == 'none' then
+										table.insert(plan.delete, { key=key, reason='none_appeared' })
+									elseif questStr == 'none|disappeared' then
+										local action
+										local events = eventsByPin[pinKey]
+										if events then
+											for _, ev in ipairs(events) do
+												local a = extractAction(ev)
+												if a then action = a; break end
+											end
+										end
+										if action then
+											table.insert(plan.reclassify, { key=key, newAction=action })
+										else
+											table.insert(plan.delete, { key=key, reason='none_disappeared_orphan' })
+										end
+									else
+										local acceptId = strmatch(questStr, '^accept:(%d+)')
+										if acceptId then
+											keysByPinAccept[pinKey] = keysByPinAccept[pinKey] or {}
+											keysByPinAccept[pinKey][acceptId] = keysByPinAccept[pinKey][acceptId] or {}
+											table.insert(keysByPinAccept[pinKey][acceptId], key)
+										end
+									end
+								end
+							end
+							for pinKey, byQid in pairs(keysByPinAccept) do
+								local qids = {}
+								for qid in pairs(byQid) do table.insert(qids, qid) end
+								if #qids >= 3 then
+									local qidTime = {}
+									local events = eventsByPin[pinKey]
+									if events then
+										for _, ev in ipairs(events) do
+											local a = extractAction(ev)
+											if a and strsub(a, 1, 7) == 'accept:' then
+												local q = strsub(a, 8)
+												if byQid[q] and (not qidTime[q] or ev.time < qidTime[q]) then
+													qidTime[q] = ev.time
+												end
+											end
+										end
+									end
+									local timed = {}
+									for _, qid in ipairs(qids) do
+										table.insert(timed, { qid=qid, time=qidTime[qid] or math.huge })
+									end
+									table.sort(timed, function(a, b) return a.time < b.time end)
+									for i = 3, #timed do
+										for _, k in ipairs(byQid[timed[i].qid]) do
+											table.insert(plan.delete, { key=k, reason='accept_cluster_excess' })
+										end
+									end
+								end
+							end
+
+							-- Backup vor Mutation
+							local before = 0
+							for _ in pairs(db.questPinLinks) do before = before + 1 end
+							db.questPinLinksBackup = {}
+							for k in pairs(db.questPinLinks) do db.questPinLinksBackup[k] = true end
+							db.questPinGuidIndexBackup = {}
+							for k, v in pairs(db.questPinGuidIndex or {}) do db.questPinGuidIndexBackup[k] = v end
+							db.pruneApplyTime         = time()
+							db.pruneApplyDeleted      = #plan.delete
+							db.pruneApplyReclassified = #plan.reclassify
+
+							-- Deletes ausführen
+							for _, item in ipairs(plan.delete) do
+								db.questPinLinks[item.key] = nil
+								if db.questPinGuidIndex then
+									local pinKey = strmatch(item.key, '^([^|]+)|')
+									if pinKey and db.questPinGuidIndex[pinKey] == item.key then
+										db.questPinGuidIndex[pinKey] = nil
+									end
+								end
+							end
+							-- Reclassifies ausführen (alten Eintrag weg, neuer mit Action-Tag rein)
+							for _, item in ipairs(plan.reclassify) do
+								local pinKey, _, coords = strmatch(item.key, '^([^|]+)|quests=(.-)%s*|%s*coords=(.+)$')
+								db.questPinLinks[item.key] = nil
+								if pinKey and coords then
+									local newQuestStr = item.newAction .. '|disappeared'
+									local newSource   = strformat('quests=%s | coords=%s', newQuestStr, tostring(coords))
+									local newKey      = strformat('%s|%s', pinKey, newSource)
+									db.questPinLinks[newKey] = true
+									if db.questPinGuidIndex then
+										db.questPinGuidIndex[pinKey] = newKey
+									end
+								end
+							end
+							-- Lazy-built link index droppen, damit er aus db.Tracking neu aufgebaut wird wenn nötig
+							self._questPinLinkIndexBuilt = nil
+							local after = 0
+							for _ in pairs(db.questPinLinks) do after = after + 1 end
+							print(strformat('|cFFFF8800prune-pinlinks apply|r: before=%d after=%d  deleted=%d  reclassified=%d  backup=saved',
+								before, after, #plan.delete, #plan.reclassify))
+							print(strformat('  use "/grail prune-pinlinks restore" to roll back'))
+							return
+						end
+
+						-- Key format: <pinKey>|quests=<questStr> | coords=<coords>
+						-- questStr may itself contain '|disappeared', '|swap:...', etc.
+						local total, byCategory, parseFails = 0, {}, 0
+						local acceptsByPin, coordMapsByPin = {}, {}
+						local examples = {}
+						local function bump(cat, ex)
+							byCategory[cat] = (byCategory[cat] or 0) + 1
+							if ex and (not examples[cat] or #examples[cat] < 3) then
+								examples[cat] = examples[cat] or {}
+								table.insert(examples[cat], ex)
+							end
+						end
+						for key in pairs(db.questPinLinks) do
+							total = total + 1
+							local pinKey, questStr, coords = strmatch(key, '^([^|]+)|quests=(.-)%s*|%s*coords=(.+)$')
+							if not pinKey then
+								parseFails = parseFails + 1
+							else
+								local isDisappear = strfind(questStr, 'disappeared', 1, true) ~= nil
+								local isNoneOnly  = (questStr == 'none')
+								local isNoneDis   = (questStr == 'none|disappeared')
+								if strfind(questStr, '|transition:', 1, true) then
+									bump('legacy_transition', pinKey)
+								end
+								if isNoneOnly then bump('none_appeared', pinKey) end
+								if isNoneDis  then bump('none_disappeared_orphan', pinKey) end
+								local acceptId = strmatch(questStr, '^accept:(%d+)')
+								if acceptId then
+									acceptsByPin[pinKey] = acceptsByPin[pinKey] or {}
+									acceptsByPin[pinKey][acceptId] = true
+								end
+								local mapPrefix = strmatch(coords, '^(%d+):')
+								if mapPrefix then
+									coordMapsByPin[pinKey] = coordMapsByPin[pinKey] or {}
+									coordMapsByPin[pinKey][mapPrefix] = true
+								end
+							end
+						end
+						-- Aggregate accept-cluster and cross-map
+						local clusterPins, crossMapPins = {}, {}
+						for pinKey, set in pairs(acceptsByPin) do
+							local n = 0; for _ in pairs(set) do n = n + 1 end
+							if n >= 3 then table.insert(clusterPins, strformat('%s(n=%d)', pinKey, n)) end
+						end
+						for pinKey, set in pairs(coordMapsByPin) do
+							local n = 0; for _ in pairs(set) do n = n + 1 end
+							if n >= 2 then
+								local maps = {}; for m in pairs(set) do table.insert(maps, m) end
+								table.sort(maps)
+								table.insert(crossMapPins, strformat('%s[%s]', pinKey, table.concat(maps, ',')))
+							end
+						end
+						-- Output
+						print(strformat('|cFFFFFF00prune-pinlinks report|r: total=%d  unique_pins=%d  parse_fails=%d',
+							total,
+							(function() local n=0; for _ in pairs(coordMapsByPin) do n=n+1 end return n end)(),
+							parseFails))
+						local cats = { 'legacy_transition', 'none_appeared', 'none_disappeared_orphan' }
+						for _, c in ipairs(cats) do
+							if byCategory[c] then
+								local ex = examples[c] and table.concat(examples[c], ', ') or ''
+								print(strformat('  %s: %d  (e.g. %s)', c, byCategory[c], ex))
+							end
+						end
+						if #clusterPins > 0 then
+							table.sort(clusterPins)
+							print(strformat('  accept_cluster (>=3 distinct accept tags / pin): %d', #clusterPins))
+							print(strformat('    e.g. %s', table.concat(clusterPins, ', ', 1, math.min(5, #clusterPins))))
+						end
+						if #crossMapPins > 0 then
+							table.sort(crossMapPins)
+							print(strformat('  cross_map_duplicate (pin on >=2 mapIDs): %d', #crossMapPins))
+							print(strformat('    e.g. %s', table.concat(crossMapPins, ', ', 1, math.min(5, #crossMapPins))))
+						end
+					end)
+					-- >>>PHASE8_END
+
+					-- >>>PHASE8_VIGNETTE_BEGIN: /grail prune-viglinks (report only — apply later)
+					-- db.vignetteLinks has different source structures than questPinLinks:
+					--   rep=<faction>+<amount> | coords=...                  (rep correlation)
+					--   rep=renown:<id>+<lvl>  | coords=...                  (renown tick)
+					--   quests=<id>(,<id>)* | coords=...                     (quest-completion correlation)
+					--   npcId=<id> | quests=<id>(,<id>)* | coords=...        (loot link)
+					-- Synthetic GUIDs:   Loot-<npcId>   (loot without matching vignette)
+					self:RegisterSlashOption("prune-viglinks", "|cFF00FF00prune-viglinks|r |cFFFF8C00[report]|r => analyze db.vignetteLinks for phantom patterns (read-only)", function(msg)
+						local db = GrailDatabase
+						if not db.vignetteLinks or not next(db.vignetteLinks) then
+							print('|cFFFFFF00prune-viglinks|r: db.vignetteLinks is empty')
+							return
+						end
+						local sub = strmatch(msg or '', 'prune%-viglinks%s+(%S+)') or 'report'
+						if sub ~= 'report' then
+							print(strformat('|cFFFFFF00prune-viglinks|r: unknown sub-command "%s" (only "report" implemented for now)', sub))
+							return
+						end
+						local total, syntheticLoot, realVignettes = 0, 0, 0
+						local byType = { rep=0, quests=0, loot=0, other=0 }
+						local examples = { rep={}, quests={}, loot={}, other={} }
+						local sourcesByGuid = {}
+						for key in pairs(db.vignetteLinks) do
+							total = total + 1
+							local guid, source = strmatch(key, '^([^|]+)|(.+)$')
+							if guid then
+								if strsub(guid, 1, 5) == 'Loot-' then
+									syntheticLoot = syntheticLoot + 1
+								else
+									realVignettes = realVignettes + 1
+								end
+								sourcesByGuid[guid] = sourcesByGuid[guid] or {}
+								table.insert(sourcesByGuid[guid], source)
+								local firstSeg = strmatch(source, '^([^|]+)') or ''
+								firstSeg = strtrim(firstSeg)
+								local cat
+								if strsub(firstSeg, 1, 4) == 'rep=' then
+									cat = 'rep'
+								elseif strsub(firstSeg, 1, 7) == 'quests=' then
+									cat = 'quests'
+								elseif strsub(firstSeg, 1, 6) == 'npcId=' then
+									cat = 'loot'
+								else
+									cat = 'other'
+								end
+								byType[cat] = byType[cat] + 1
+								if #examples[cat] < 3 then
+									table.insert(examples[cat], strformat('%s :: %s',
+										strsub(guid, 1, 30), strsub(source, 1, 70)))
+								end
+							end
+						end
+						local clusterGuids = {}
+						for guid, sources in pairs(sourcesByGuid) do
+							if #sources >= 3 then
+								table.insert(clusterGuids, strformat('%s(n=%d)', strsub(guid, 1, 30), #sources))
+							end
+						end
+						print(strformat('|cFFFFFF00prune-viglinks report|r: total=%d  unique_keys=%d  real=%d  synthetic_loot=%d',
+							total,
+							(function() local n=0; for _ in pairs(sourcesByGuid) do n=n+1 end return n end)(),
+							realVignettes, syntheticLoot))
+						print(strformat('  by source: rep=%d  quests=%d  loot=%d  other=%d',
+							byType.rep, byType.quests, byType.loot, byType.other))
+						for _, cat in ipairs({'rep','quests','loot','other'}) do
+							if byType[cat] > 0 and #examples[cat] > 0 then
+								print(strformat('  sample [%s]:', cat))
+								for _, ex in ipairs(examples[cat]) do print('    '..ex) end
+							end
+						end
+						if #clusterGuids > 0 then
+							table.sort(clusterGuids)
+							print(strformat('  cluster (key with >=3 distinct sources): %d', #clusterGuids))
+							print(strformat('    e.g. %s', table.concat(clusterGuids, ', ', 1, math.min(5, #clusterGuids))))
+						end
+					end)
+					-- >>>PHASE8_VIGNETTE_END
+
+					-- >>>PHASE8_PINEVENTS_BEGIN: cap on db.questPinEvents growth
+					self:RegisterSlashOption("prune-pinevents", "|cFF00FF00prune-pinevents|r |cFFFF8C00[report|apply]|r => report or trim db.questPinEvents FIFO to GDE.questPinEventsLimit (default 5000)", function(msg)
+						local db = GrailDatabase
+						local sub = strmatch(msg or '', 'prune%-pinevents%s+(%S+)') or 'report'
+						if sub ~= 'report' and sub ~= 'apply' then
+							print(strformat('|cFFFFFF00prune-pinevents|r: unknown sub-command "%s" (try: report, apply)', sub))
+							return
+						end
+						local events = db.questPinEvents or {}
+						local count = #events
+						local limit = (self.GDE and self.GDE.questPinEventsLimit) or 5000
+						local oldest, newest
+						if count > 0 then
+							oldest = events[1].time
+							newest = events[count].time
+						end
+						print(strformat('|cFFFFFF00prune-pinevents %s|r: count=%d  limit=%d  trim_threshold=%d',
+							sub, count, limit, limit + 500))
+						if oldest and newest then
+							print(strformat('  oldest=%.0fs ago  newest=%.0fs ago  span=%.1f min',
+								GetTime() - oldest, GetTime() - newest, (newest - oldest) / 60))
+						end
+						if sub == 'report' then
+							if count > limit + 500 then
+								print(strformat('  would trim %d entries on next event diff', count - limit))
+							elseif count > limit then
+								print('  within buffer — no trim yet')
+							else
+								print('  within limit — nothing to do')
+							end
+							return
+						end
+						-- sub == 'apply'
+						if count <= limit then
+							print('|cFFFFFF00prune-pinevents apply|r: nothing to do (within limit)')
+							return
+						end
+						local before = count
+						local newArr = {}
+						local start = count - limit + 1
+						for i = start, count do newArr[#newArr + 1] = events[i] end
+						db.questPinEvents = newArr
+						print(strformat('|cFFFF8800prune-pinevents apply|r: trimmed %d -> %d entries', before, #newArr))
+					end)
+					-- >>>PHASE8_PINEVENTS_END
+
+					-- >>>PHASE8_TRACKING_BEGIN: clean legacy markers out of Grail.GDE.Tracking
+					-- Patterns are substrings used to identify obsolete log lines from
+					-- code paths removed in Phase 5/7. apply rewrites the table; restore
+					-- rolls back via Grail.GDE.TrackingBackup.
+					self:RegisterSlashOption("prune-tracking", "|cFF00FF00prune-tracking|r |cFFFF8C00[report|dry|apply|restore]|r => trim obsolete legacy markers from Grail.GDE.Tracking", function(msg)
+						local gde = self.GDE
+						local sub = strmatch(msg or '', 'prune%-tracking%s+(%S+)') or 'report'
+						if sub ~= 'report' and sub ~= 'dry' and sub ~= 'apply' and sub ~= 'restore' then
+							print(strformat('|cFFFFFF00prune-tracking|r: unknown sub-command "%s" (try: report, dry, apply, restore)', sub))
+							return
+						end
+						if sub == 'restore' then
+							if not gde.TrackingBackup then
+								print('|cFFFFFF00prune-tracking restore|r: kein Backup gefunden')
+								return
+							end
+							gde.Tracking = gde.TrackingBackup
+							gde.TrackingBackup = nil
+							gde.pruneTrackingTime = nil
+							gde.pruneTrackingRemoved = nil
+							print(strformat('|cFFFFFF00prune-tracking restore|r: %d entries restored', #gde.Tracking))
+							return
+						end
+						local tracking = gde.Tracking or {}
+						local total = #tracking
+						if total == 0 then print('|cFFFFFF00prune-tracking|r: Tracking is empty') return end
+						local patterns = {
+							'QUESTPIN_ACCEPT_DELAYED',
+							'QUESTPIN_REMOVED_DEBUG',
+							'QUESTPIN_MAP_OPEN',
+							'QUESTPIN_DELAYED',
+							'QUEST_TURNED_IN_DELAYED',
+							'QUEST_ACCEPTED_DELAYED',
+							'WORLD_MAP_OPEN_ACCEPT',
+							'QUESTPIN_ZONE_CHANGE',
+							'QUESTPIN_AOI_DELAYED',
+							'|transition:',
+						}
+						local hitsByPattern = {}
+						local toRemove, toKeep = {}, {}
+						for _, entry in ipairs(tracking) do
+							local matched
+							for _, p in ipairs(patterns) do
+								if strfind(entry, p, 1, true) then
+									matched = p
+									break
+								end
+							end
+							if matched then
+								hitsByPattern[matched] = (hitsByPattern[matched] or 0) + 1
+								if #toRemove < 5 then table.insert(toRemove, entry) end
+							else
+								table.insert(toKeep, entry)
+							end
+						end
+						local removed = total - #toKeep
+						print(strformat('|cFFFFFF00prune-tracking %s|r: total=%d  matched=%d  keep=%d',
+							sub, total, removed, #toKeep))
+						for _, p in ipairs(patterns) do
+							if hitsByPattern[p] then print(strformat('  %s: %d', p, hitsByPattern[p])) end
+						end
+						if sub == 'report' or sub == 'dry' then
+							if #toRemove > 0 then
+								print('  sample matched (up to 5):')
+								for _, s in ipairs(toRemove) do print('    '..strsub(s, 1, 120)) end
+							end
+							if sub == 'dry' then print('  use "/grail prune-tracking apply" to remove') end
+							return
+						end
+						-- sub == 'apply'
+						if removed == 0 then
+							print('|cFFFFFF00prune-tracking apply|r: nothing matched')
+							return
+						end
+						gde.TrackingBackup = tracking
+						gde.Tracking = toKeep
+						gde.pruneTrackingTime = time()
+						gde.pruneTrackingRemoved = removed
+						print(strformat('|cFFFF8800prune-tracking apply|r: removed %d entries (%d kept)  backup=saved', removed, #toKeep))
+						print('  use "/grail prune-tracking restore" to roll back')
+					end)
+					-- >>>PHASE8_TRACKING_END
+
 					if self.capabilities.usesAchievements then
 						frame:RegisterEvent("ACHIEVEMENT_EARNED")		-- e.g., quest 29452 can be gotten if certain achievements are complete
 						frame:RegisterEvent("CRITERIA_EARNED")		-- for debugging to see when criteria are earned in MoP
@@ -3175,6 +3782,8 @@ frame:RegisterEvent("GOSSIP_ENTER_CODE")	-- gossipIndex
 						frame:RegisterEvent("ANIMA_DIVERSION_OPEN")
 					end
 					frame:RegisterEvent("QUEST_DETAIL")
+					frame:RegisterEvent("QUEST_PROGRESS")	-- Phase 2: pre-action baseline for turnin diffs (items required)
+					frame:RegisterEvent("QUEST_COMPLETE")	-- Phase 2: pre-action baseline for turnin diffs (no items)
 					frame:RegisterEvent("QUEST_LOG_UPDATE")	-- just to indicate we are now available to read the Blizzard quest log without issues
 					frame:RegisterEvent("QUEST_REMOVED")
 					frame:RegisterEvent("QUEST_TURNED_IN")
@@ -3211,65 +3820,20 @@ frame:RegisterEvent("GOSSIP_ENTER_CODE")	-- gossipIndex
 					-- asynchronously; calling GetQuestsOnMap immediately on SetMapID returns
 					-- stale or empty results.
 					if C_QuestLog.GetQuestsOnMap then
+						-- Phase 5: Map-Maintenance via _UpdateMapPinSnapshot. The action-driven
+						-- recently-quest correlation that used to live here is now handled
+						-- exclusively by QUEST_ACCEPTED/QUEST_TURNED_IN -> _RunPinActionDiff.
 						WorldMapFrame:HookScript("OnShow", function()
 							local mapID = WorldMapFrame:GetMapID()
 							C_Timer.After(2.0, function()
 								self:_ScanMapQuestPins(mapID)
-								-- >>>QUESTPIN_DEBUG: diff against persistent snapshot when map opens after quest turnin
-								if nil ~= self._recentlyCompletedQuestIds then
-									local now = GetTime()
-									local recentQuests = {}
-									for qId, qTime in pairs(self._recentlyCompletedQuestIds) do
-										if (now - qTime) <= 30 then table.insert(recentQuests, tostring(qId)) end
-									end
-									if #recentQuests > 0 then
-										local detail = strformat('quests=%s', table.concat(recentQuests, ','))
-										local _pinNow = self:_QuestPinPoolSnapshot()
-										local _poolNow = self:_QuestPinPoolSnapshot()
-										self:_QuestPinCompareAndRecord(self._persistentPinSnapshot or {}, _poolNow,
-											'WORLD_MAP_OPEN', detail)
-										self._persistentPinSnapshot = _poolNow
-										print(strformat('QUESTPIN_MAP_OPEN: scanned mapID=%d recent_quests=%s', mapID, table.concat(recentQuests, ',')))
-											-- Check recently accepted quests
-											if nil ~= self._recentlyAcceptedQuestIds then
-												local _nowAccept = GetTime()
-												local acceptList = {}
-												for qId, qTime in pairs(self._recentlyAcceptedQuestIds) do
-													if (_nowAccept - qTime) <= 30 then table.insert(acceptList, tostring(qId)) end
-												end
-												if #acceptList > 0 then
-													local _base2 = self._questPinAcceptSnapshotBefore or {}
-													local _poolNow2 = self:_QuestPinPoolSnapshot()
-													local detail2 = strformat('accept_quests=%s', table.concat(acceptList, ','))
-													self:_QuestPinCompareAndRecord(_base2, _poolNow2, 'WORLD_MAP_OPEN_ACCEPT', detail2)
-													print(strformat('QUESTPIN_MAP_OPEN: scanned mapID=%d recent_accepts=%s', mapID, table.concat(acceptList, ',')))
-												end
-											end
-									end
-								end
-								-- >>>QUESTPIN_DEBUG_END
+								self:_UpdateMapPinSnapshot(mapID, 'WORLD_MAP_OPEN', nil)
 							end)
 						end)
 						hooksecurefunc(WorldMapFrame, "SetMapID", function(_, mapID)
 							C_Timer.After(2.0, function()
 								self:_ScanMapQuestPins(mapID)
-								-- >>>QUESTPIN_DEBUG: diff on map navigation if recent quest turnin
-								if nil ~= self._recentlyCompletedQuestIds then
-									local now = GetTime()
-									local recentQuests = {}
-									for qId, qTime in pairs(self._recentlyCompletedQuestIds) do
-										if (now - qTime) <= 30 then table.insert(recentQuests, tostring(qId)) end
-									end
-									if #recentQuests > 0 then
-										local detail = strformat('quests=%s', table.concat(recentQuests, ','))
-										local _pinNow = self:_QuestPinPoolSnapshot()
-										local _poolNow2 = self:_QuestPinPoolSnapshot()
-										self:_QuestPinCompareAndRecord(self._persistentPinSnapshot or {}, _poolNow2,
-											'WORLD_MAP_SETMAPID', detail)
-										self._persistentPinSnapshot = _poolNow2
-									end
-								end
-								-- >>>QUESTPIN_DEBUG_END
+								self:_UpdateMapPinSnapshot(mapID, 'WORLD_MAP_SETMAPID', nil)
 							end)
 						end)
 					end
@@ -3558,9 +4122,8 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 					self:_ProcessServerBackup(true)
 					self.doneProcessingBookBackup = true
 				end
-				-- >>>VIGNETTE_DEBUG
-				local _vigSnapBefore = self:_VignetteSnapshot()
-				-- >>>VIGNETTE_DEBUG_END
+				-- Phase 7: pre-read vignette snapshot removed (was only used as input to
+				-- the no-op _VignetteCompareAndLog stub).
 				-- In Retail, QueryQuestsCompleted is replaced at startup with a synchronous
 				-- wrapper around _ProcessServerQuests() -- completedQuests is updated immediately
 				-- and QUEST_QUERY_COMPLETE never fires.  So we diff right after the call.
@@ -3592,9 +4155,8 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 					end
 					self:_ProcessServerBackup(true)
 					self.doneProcessingBookBackup = false
-					-- >>>VIGNETTE_DEBUG
-					self:_VignetteCompareAndLog(_vigSnapBefore, self:_VignetteSnapshot(),
-						strformat('ITEM_TEXT_READY npc=%s(%s)', tostring(targetName), tostring(npcId)))
+					-- Phase 7: _VignetteCompareAndLog stub call removed. Book-read context
+					-- below remains the actual correlation mechanism via VIGNETTES_UPDATED.
 					-- Store book-read context so VIGNETTES_UPDATED can correlate a disappearing
 					-- vignette with this NPC and trigger a deferred quest compare.
 					-- Timestamp guards against false matches if no vignette disappears for this book.
@@ -3726,30 +4288,10 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 				-- >>>WARBAND_DEBUG
 				self:_CheckWarbandQuestChanges('PLAYER_ENTERING_WORLD')
 				-- >>>WARBAND_DEBUG_END
-				-- >>>QUESTPIN_DEBUG: scan for new pins after zone change if quest was recently turned in
-				if nil ~= self._recentlyCompletedQuestIds then
-					local now = GetTime()
-					local recentQuests = {}
-					for qId, qTime in pairs(self._recentlyCompletedQuestIds) do
-						if (now - qTime) <= 200 then table.insert(recentQuests, tostring(qId)) end
-					end
-					if #recentQuests > 0 then
-						local _self = self
-						local detail = strformat('quests=%s', table.concat(recentQuests, ','))
-						for _, delay in ipairs({1.0, 3.0}) do
-							C_Timer.After(delay, function()
-								local _poolNow = _self:_QuestPinPoolSnapshot()
-								local cnt = _self:_QuestPinCompareAndRecord(_self._persistentPinSnapshot or {}, _poolNow,
-									'PLAYER_ENTERING_WORLD', detail)
-								if cnt > 0 then
-									print(strformat('QUESTPIN_ZONE_CHANGE: found=%d delay=%.1fs %s', cnt, delay, detail))
-								end
-								_self._persistentPinSnapshot = _poolNow
-						end)
-						end
-					end
-				end
-				-- >>>QUESTPIN_DEBUG_END
+				-- Phase 5: zone change just bootstraps the map snapshot, no diff. Cross-map
+				-- diffs were the largest false-positive source pre-refactor.
+				local _self = self
+				C_Timer.After(1.0, function() _self:_UpdateMapPinSnapshot(nil, nil, nil) end)
 			end,
 
 			-- Note that the new level is recorded here, because during processing of this event calls to UnitLevel('player')
@@ -3761,6 +4303,8 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 				else
 					self:_RegisterDelayedEvent(frame, { 'PLAYER_LEVEL_UP' } )
 				end
+				-- Task-lifecycle trigger
+				self:_RecordLifeEvent('level_ups', { value = tonumber(newLevel) })
 			end,
 
 			-- When a guestgiver only has one quest to give, by the time QUEST_ACCEPTED
@@ -3782,6 +4326,19 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 					questId = offeredQuestId
 				}
 				self:_CheckAndLearnPrereqVerification(offeredQuestId)
+				-- >>>QUESTPIN_DEBUG (Phase 2): pre-action baseline for upcoming QUEST_ACCEPTED diff
+				self:_CapturePinActionBaseline('QUEST_DETAIL')
+				-- >>>QUESTPIN_DEBUG_END
+			end,
+
+			-- QUEST_PROGRESS / QUEST_COMPLETE only serve as pre-action baseline capture
+			-- points for the upcoming QUEST_TURNED_IN diff. No other side effects.
+			['QUEST_PROGRESS'] = function(self, frame)
+				self:_CapturePinActionBaseline('QUEST_PROGRESS')
+			end,
+
+			['QUEST_COMPLETE'] = function(self, frame)
+				self:_CapturePinActionBaseline('QUEST_COMPLETE')
 			end,
 
 			-- Prior to Shadowlands, the signature is (self, frame, questIndex, questId)
@@ -3836,59 +4393,11 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 				-- >>>QUESTPIN_DEBUG: track accepted quest for pin correlation
 				self._recentlyAcceptedQuestIds = self._recentlyAcceptedQuestIds or {}
 				self._recentlyAcceptedQuestIds[theQuestId] = GetTime()
-				-- Take pool snapshot before new pins appear
-				if not self._questPinAcceptSnapshotBefore then
-					self._questPinAcceptSnapshotBefore = self._persistentPinSnapshot or self:_QuestPinPoolSnapshot()
-				end
-				-- Delayed scans for pins that appear/disappear after quest accept
-				local _acceptedId = theQuestId
-				local _self = self
-				local _acceptBase = self._questPinAcceptSnapshotBefore
-				if C_Timer and C_Timer.After then
-					for _, delay in ipairs({1.0, 3.0, 7.0, 15.0}) do
-						C_Timer.After(delay, function()
-							local _pinNow = _self:_QuestPinPoolSnapshot()
-							local _found = 0
-							local detail = strformat('quest=%d delay=%.1fs', _acceptedId, delay)
-							-- Appeared pins
-							for key, info in pairs(_pinNow) do
-								if not _acceptBase[key] then
-									_found = _found + 1
-									_self:_QuestPinCompareAndRecord({}, { [key]=info },
-										'QUEST_ACCEPTED_DELAYED', detail)
-									_self:_RecordQuestPinLink(key, info.pinType, info.name,
-										strformat('accept:%d', _acceptedId), info.coords)
-									print(strformat('QUESTPIN_ACCEPT: appeared pin=%s name=%s after %.1fs (quest=%d)',
-										key, tostring(info.name), delay, _acceptedId))
-									_acceptBase[key] = info
-								end
-							end
-							-- Disappeared pins (only check at 1s)
-							if delay == 1.0 then
-								for key, info in pairs(_acceptBase) do
-									if not _pinNow[key] then
-										_self:_QuestPinCompareAndRecord({ [key]=info }, {},
-											'QUEST_ACCEPTED_DELAYED', detail)
-										_self:_RecordQuestPinLink(key, info.pinType, info.name,
-											strformat('accept:%d|disappeared', _acceptedId), info.coords)
-										print(strformat('QUESTPIN_ACCEPT: disappeared pin=%s after %.1fs (quest=%d)',
-											key, delay, _acceptedId))
-									end
-								end
-							end
-							local _nowSize, _baseSize = 0, 0
-							for _ in pairs(_pinNow) do _nowSize=_nowSize+1 end
-							for _ in pairs(_acceptBase) do _baseSize=_baseSize+1 end
-							print(strformat('QUESTPIN_ACCEPT_DELAYED: %.1fs quest=%d found=%d now=%d base=%d',
-								delay, _acceptedId, _found, _nowSize, _baseSize))
-							_self._persistentPinSnapshot = _pinNow
-						end)
-					end
-					-- Reset accept snapshot after last delay
-					C_Timer.After(16.0, function()
-						_self._questPinAcceptSnapshotBefore = nil
-					end)
-				end
+				-- Phase 5: pool-based legacy diff removed; wide-snapshot _RunPinActionDiff
+				-- is the sole accept-correlation pathway.
+				self:_RunPinActionDiff('accept:'..tostring(theQuestId), theQuestId)
+				-- Task-lifecycle trigger
+				self:_RecordLifeEvent('quest_accepts', { questId=theQuestId, name=self:QuestName(theQuestId) })
 				-- >>>QUESTPIN_DEBUG_END
 
 			end,
@@ -3913,29 +4422,38 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 			-- this is not the case prior to receiving PLAYER_ALIVE, but since that event is never received in a UI reload this event is used as
 			-- a replacement which seems to work properly.
 			['QUEST_LOG_UPDATE'] = function(self, frame)
-				frame:UnregisterEvent("QUEST_LOG_UPDATE")
-				self.receivedQuestLogUpdate = true
-				-- >>>WARBAND_DEBUG
-				self:_CheckWarbandQuestChanges('QUEST_LOG_UPDATE')
-				-- >>>WARBAND_DEBUG_END
-				frame:RegisterEvent("BAG_UPDATE")						-- we need to know when certain items are present or not (for quest 28607 e.g.)
-				if self.capabilities.usesCalendar then
-					frame:RegisterEvent("CALENDAR_UPDATE_EVENT_LIST")		-- to indicate the calendar is primed and can be accurately read
-					-- The intention is to receive the CALENDAR_UPDATE_EVENT_LIST event
-					-- and to do so, one calls OpenCalendar(), but it seems if one does
-					-- not call the other calendar functions beforehand, the call to
-					-- OpenCalendar() will do nothing useful.
-					local weekday, month, day, year, hour, minute = self:CurrentDateTime()
-					C_Calendar.SetAbsMonth(month, year)
-					C_Calendar.OpenCalendar()	-- this does nothing during startup...its real usage is when checking holidays
-					self:_AddWorldQuests()
-					self:_AddThreatQuests()
-					C_CovenantCallings.RequestCallings()	-- causes COVENANT_CALLINGS_UPDATED event to be sent
-				end
-				-- In Classic we need to get the completed quests because we have eliminated the
-				-- call as a result of calendar processing being removed from Classic.
-				if self.existsClassic then
-					QueryQuestsCompleted()
+				if not self.receivedQuestLogUpdate then
+					-- First-time init: register downstream events, prime calendar, run heavy
+					-- warband sync once.
+					self.receivedQuestLogUpdate = true
+					-- >>>WARBAND_DEBUG
+					self:_CheckWarbandQuestChanges('QUEST_LOG_UPDATE')
+					-- >>>WARBAND_DEBUG_END
+					frame:RegisterEvent("BAG_UPDATE")						-- we need to know when certain items are present or not (for quest 28607 e.g.)
+					if self.capabilities.usesCalendar then
+						frame:RegisterEvent("CALENDAR_UPDATE_EVENT_LIST")		-- to indicate the calendar is primed and can be accurately read
+						-- The intention is to receive the CALENDAR_UPDATE_EVENT_LIST event
+						-- and to do so, one calls OpenCalendar(), but it seems if one does
+						-- not call the other calendar functions beforehand, the call to
+						-- OpenCalendar() will do nothing useful.
+						local weekday, month, day, year, hour, minute = self:CurrentDateTime()
+						C_Calendar.SetAbsMonth(month, year)
+						C_Calendar.OpenCalendar()	-- this does nothing during startup...its real usage is when checking holidays
+						self:_AddWorldQuests()
+						self:_AddThreatQuests()
+						C_CovenantCallings.RequestCallings()	-- causes COVENANT_CALLINGS_UPDATED event to be sent
+					end
+					-- In Classic we need to get the completed quests because we have eliminated the
+					-- call as a result of calendar processing being removed from Classic.
+					if self.existsClassic then
+						QueryQuestsCompleted()
+					end
+					-- Light poller: prime the cache with the current Blizzard state so future
+					-- QUEST_LOG_UPDATE diffs report only newly observed completions.
+					self:_InitLightweightCompletionCache()
+				else
+					-- Subsequent fires: cheap diff against the local cache.
+					self:_CheckLightweightCompletions('QUEST_LOG_UPDATE')
 				end
 			end,
 
@@ -3968,80 +4486,15 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 				-- and turn-in is first, so we can know we are abandoning or not
 				if nil == self.questTurningIn then
 					self:_QuestAbandon(questId)
+					-- Task-lifecycle trigger: only abandons, not turnins (those are handled separately)
+					self:_RecordLifeEvent('quest_abandons', { questId=questId, name=self:QuestName(questId) })
 				end
-				-- >>>VIGNETTE_DEBUG
-				if nil ~= self._vignetteSnapshotBefore then
-					self:_VignetteCompareAndLog(self._vignetteSnapshotBefore, self:_VignetteSnapshot(), self._vignetteSnapshotLabel or 'QUEST_REMOVED')
-					self._vignetteSnapshotBefore = nil
-				end
-				self._vignetteSnapshotLabel  = nil
-				-- >>>VIGNETTE_DEBUG_END
-				-- >>>QUESTPIN_DEBUG
-				do
-					local _poolCurrent = self:_QuestPinPoolSnapshot()
-					do
-						local _bSize, _pSize = 0, 0
-						if self._questPinSnapshotBefore then for _ in pairs(self._questPinSnapshotBefore) do _bSize=_bSize+1 end end
-						for _ in pairs(_poolCurrent) do _pSize=_pSize+1 end
-						print(strformat('QUESTPIN_REMOVED_DEBUG: snapshotBefore=%s(%d) pool=%d trigger=%s',
-							tostring(self._questPinSnapshotBefore ~= nil), _bSize, _pSize, tostring(self._questPinTrigger)))
-					end
-					if nil ~= self._questPinSnapshotBefore then
-						self:_QuestPinCompareAndRecord(self._questPinSnapshotBefore, _poolCurrent,
-							self._questPinTrigger or 'QUEST_REMOVED', self._questPinTriggerDetail)
-						self._questPinSnapshotBefore, self._questPinTrigger, self._questPinTriggerDetail = nil, nil, nil
-					end
-					-- Update persistent snapshot (pool-only) so AREA_POIS_UPDATED can diff against it
-					self._persistentPinSnapshot = _poolCurrent
-				end
-					-- >>>QUESTPIN_DEBUG: delayed scans to catch pins that appear after map opens
-					local _turnedInId = self.questTurningIn
-					-- Capture the before-snapshot once for all delays
-					local _delayedBase = self._persistentPinSnapshot or {}
-				local _self = self
-					if C_Timer and C_Timer.After then
-						for _, delay in ipairs({1.0, 3.0, 7.0, 15.0}) do
-							C_Timer.After(delay, function()
-								local _pinNow = _self:_QuestPinPoolSnapshot()
-								local _base   = _delayedBase
-								local _found  = 0
-								local _nowSize, _baseSize = 0, 0
-								for _ in pairs(_pinNow) do _nowSize=_nowSize+1 end
-								for _ in pairs(_base) do _baseSize=_baseSize+1 end
-								-- Check for appeared pins
-								for key, info in pairs(_pinNow) do
-									if not _base[key] then
-										_found = _found + 1
-										local detail = strformat('quest=%s delay=%.1fs', tostring(_turnedInId), delay)
-										local cnt = _self:_QuestPinCompareAndRecord({}, { [key]=info },
-											'QUEST_TURNED_IN_DELAYED', detail)
-										if cnt > 0 then
-											print(strformat('QUESTPIN_DELAYED: found pin=%s name=%s after %.1fs (quest=%s)',
-												key, tostring(info.name), delay, tostring(_turnedInId)))
-										end
-										_base[key] = info
-									end
-								end
-								-- Check for disappeared pins (pin was in persistent snapshot but gone now)
-								if delay == 1.0 then
-									local detail = strformat('quest=%s delay=%.1fs', tostring(_turnedInId), delay)
-									for key, info in pairs(_base) do
-										if not _pinNow[key] then
-											_self:_QuestPinCompareAndRecord({ [key]=info }, {},
-												'QUEST_TURNED_IN_DELAYED', detail)
-											print(strformat('QUESTPIN_DELAYED: disappeared pin=%s after %.1fs (quest=%s)',
-												key, delay, tostring(_turnedInId)))
-										end
-									end
-								end
-								print(strformat('QUESTPIN_DELAYED: %.1fs quest=%s found=%d now=%d base=%d',
-									delay, tostring(_turnedInId), _found, _nowSize, _baseSize))
-								-- Update persistent snapshot but not _delayedBase so later delays still catch new pins
-								_self._persistentPinSnapshot = _pinNow
-							end)
-						end
-					end
-					-- >>>QUESTPIN_DEBUG_END
+				-- Phase 7: _vignetteSnapshotBefore consumer removed (stub _VignetteCompareAndLog).
+				-- Phase 5: QUEST_REMOVED no longer drives pin diffs — that's the action
+				-- subsystem's job now (QUEST_ACCEPTED/QUEST_TURNED_IN -> _RunPinActionDiff).
+				-- We only refresh the map-maintenance snapshot so other passive consumers
+				-- see the post-removal state.
+				self:_UpdateMapPinSnapshot(nil, nil, nil)
 				self.questTurningIn = nil
 				self.pendingRepChanges = nil
 			end,
@@ -4049,26 +4502,25 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 			-- >>>WARBAND_DEBUG
 			['CRITERIA_UPDATE'] = function(self, frame, ...)
 				self:_CheckWarbandQuestChanges('CRITERIA_UPDATE')
+				self:_CheckLightweightCompletions('CRITERIA_UPDATE')
 			end,
 			['QUEST_WATCH_UPDATE'] = function(self, frame, ...)
 				self:_CheckWarbandQuestChanges('QUEST_WATCH_UPDATE')
+				self:_CheckLightweightCompletions('QUEST_WATCH_UPDATE')
 			end,
 			-- >>>WARBAND_DEBUG_END
 
 			['QUEST_TURNED_IN'] = function(self, frame, questId, xp, money)
 				self.questTurningIn = questId
-				-- >>>VIGNETTE_DEBUG
-				self._vignetteSnapshotBefore = self:_VignetteSnapshot()
-				self._vignetteSnapshotLabel  = strformat('QUEST_TURNED_IN quest=%d', questId)
-				-- >>>VIGNETTE_DEBUG_END
-				-- >>>QUESTPIN_DEBUG
-					-- Use persistent snapshot as before-state: pool pin is already gone when QUEST_TURNED_IN fires
-					self._questPinSnapshotBefore = self._persistentPinSnapshot or self:_QuestPinPoolSnapshot()
-				self._questPinTrigger        = 'QUEST_TURNED_IN'
-				self._questPinTriggerDetail  = strformat('quest=%d', questId)
-				-- Store pending quest for async pin→quest reverse lookup
+				-- Phase 7: _vignetteSnapshotBefore setter removed (consumer was the no-op
+				-- _VignetteCompareAndLog stub in QUEST_REMOVED).
+				-- >>>QUESTPIN_DEBUG (Phase 5: legacy snapshot setup removed; only correlation
+				-- bookkeeping + new action diff remain)
 				self._recentlyCompletedQuestIds = self._recentlyCompletedQuestIds or {}
 				self._recentlyCompletedQuestIds[questId] = GetTime()
+				self:_RunPinActionDiff('turnin:'..tostring(questId), questId)
+				-- Task-lifecycle trigger
+				self:_RecordLifeEvent('quest_turnins', { questId=questId, name=self:QuestName(questId) })
 				-- >>>QUESTPIN_DEBUG_END
 				-- Consume any rep changes buffered from CHAT_MSG_COMBAT_FACTION_CHANGE
 				-- (which fires before this event).
@@ -5514,7 +5966,11 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 					if isDaily then kCodeValue = kCodeValue + Grail.bitMaskQuestDaily end
 					if isWeekly then kCodeValue = kCodeValue + Grail.bitMaskQuestWeekly end
 					if suggestedGroup then
-						if type(suggestedGroup) == "string" or suggestedGroup > 1 then
+						-- Type-safe coercion: prevents crashes when Blizzard API returns
+						-- unexpected types, and avoids false-positive Group flag on
+						-- empty/"0" string values that older code mistakenly accepted.
+						local sg = tonumber(suggestedGroup)
+						if sg and sg > 1 then
 							kCodeValue = kCodeValue + Grail.bitMaskQuestGroup
 						end
 					end
@@ -5539,25 +5995,34 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 			Grail.timings.QuestAccepted = debugprofilestop() - debugStartTime
 		end,
 
+		-- Shared body of _AcceptQuestProcessingUpdateGroupCounts. Iterates the per-quest
+		-- group set under cacheKey ('H' for daily, 'K' for weekly), records the value
+		-- change, and invalidates the relevant status/NPC caches. invalidateOnMax is
+		-- the list of cache-keys to invalidate when the group reaches its maximum;
+		-- alwaysInvalidate is invalidated on every group (used for the daily 'X' cache).
+		_ProcessQuestGroupTrigger = function(self, questId, cacheKey, maxTbl, invalidateOnMax, alwaysInvalidate, isWeekly)
+			if questId == nil then return end
+			local groups = self.questStatusCache[cacheKey] and self.questStatusCache[cacheKey][questId]
+			if not groups then return end
+			for _, group in pairs(groups) do
+				if self:_RecordGroupValueChange(group, true, false, questId, isWeekly) >= maxTbl[group] then
+					for _, k in ipairs(invalidateOnMax) do
+						self:_StatusCodeInvalidate(self.questStatusCache[k][group])
+						self:_NPCLocationInvalidate(self.npcStatusCache[k][group])
+					end
+				end
+				if alwaysInvalidate then
+					for _, k in ipairs(alwaysInvalidate) do
+						self:_StatusCodeInvalidate(self.questStatusCache[k][group])
+						self:_NPCLocationInvalidate(self.npcStatusCache[k][group])
+					end
+				end
+			end
+		end,
+
 		_AcceptQuestProcessingUpdateGroupCounts = function(self, questId)
-			if questId ~= nil and self.questStatusCache.H[questId] then
-				for _, group in pairs(self.questStatusCache.H[questId]) do
-					if self:_RecordGroupValueChange(group, true, false, questId) >= self.dailyMaximums[group] then
-						self:_StatusCodeInvalidate(self.questStatusCache['G'][group])
-						self:_NPCLocationInvalidate(self.npcStatusCache['G'][group])
-					end
-					self:_StatusCodeInvalidate(self.questStatusCache['X'][group])
-					self:_NPCLocationInvalidate(self.npcStatusCache['X'][group])
-				end
-			end
-			if questId ~= nil and self.questStatusCache.K[questId] then
-				for _, group in pairs(self.questStatusCache.K[questId]) do
-					if self:_RecordGroupValueChange(group, true, false, questId, true) >= self.weeklyMaximums[group] then
-						self:_StatusCodeInvalidate(self.questStatusCache.J[group])
-						self:_NPCLocationInvalidate(self.npcStatusCache.J[group])
-					end
-				end
-			end
+			self:_ProcessQuestGroupTrigger(questId, 'H', self.dailyMaximums,  {'G'}, {'X'}, false)
+			self:_ProcessQuestGroupTrigger(questId, 'K', self.weeklyMaximums, {'J'}, nil,   true)
 		end,
 
 		_AcceptQuestProcessingCompleteOnAccept = function(self, questId)
@@ -6213,6 +6678,9 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 			if (nil == self.quests[questId] or (nil == self.quests[questId]['A'] and nil == self.quests[questId]['AP'])) and nil ~= mapId then
 				local coordinates = strformat("%.2f,%.2f", x * 100 , y * 100)
 				if nil ~= coordinates then
+					-- Lazy-init the per-map subtable so the next subscript can't crash
+					-- when a previously unseen mapId is encountered.
+					self._worldQuestSelfNPCs[mapId] = self._worldQuestSelfNPCs[mapId] or {}
 					local npcId = self._worldQuestSelfNPCs[mapId][coordinates]
 					if nil == npcId then
 						npcId = self:_CreateWorldNPC(mapId..':'..coordinates)
@@ -10027,22 +10495,34 @@ end
 			self:_AddTrackingMessage("Coordinates earned: ", Grail:Coordinates())
 		end,
 
+		-- Lookup the human-readable name for a Major Faction id. Returns nil if the
+		-- API is missing (Classic/older clients) or the id is unknown to the client.
+		_MajorFactionName = function(self, factionId)
+			if not (C_MajorFactions and C_MajorFactions.GetMajorFactionData) then return nil end
+			local data = C_MajorFactions.GetMajorFactionData(tonumber(factionId) or factionId)
+			return data and data.name or nil
+		end,
+
 		_HandleEventMajorFactionUnlocked = function(self, factionId)
-			local message = "Major faction unlocked: " .. factionId
+			local name = self:_MajorFactionName(factionId)
+			local message = name
+				and strformat("Major faction unlocked: %s (id=%s)", name, tostring(factionId))
+				or  strformat("Major faction unlocked: id=%s", tostring(factionId))
 			if self.GDE.debug then
 				print(message)
 			end
 			self:_AddTrackingMessage(message)
 			self:_StatusCodeInvalidate(self.invalidateControl[self.invalidateGroupMajorFactionQuests])
-			-- >>>VIGNETTE_DEBUG: use persistent snapshots; VIGNETTES_UPDATED may have already fired
-			local _label = strformat('MAJOR_FACTION_UNLOCKED faction=%s', tostring(factionId))
-			local _vigNow = self:_VignetteSnapshot()
-			self:_VignetteCompareAndLog(self._persistentVigSnapshot or {}, _vigNow, _label)
-			self._persistentVigSnapshot = _vigNow
+			-- Phase 7: vignette snapshot maintenance is now exclusively handled by
+			-- VIGNETTES_UPDATED. Other passive triggers no longer touch the snapshot —
+			-- side-effect updates here used to mask appeared/disappeared transitions.
 			-- Store rep change and do forward vignette lookup
 			self._recentlyRepChanges = self._recentlyRepChanges or {}
 			local _repKey = strformat('unlock_%s_%s', tostring(factionId), tostring(GetTime()))
-			self._recentlyRepChanges[_repKey] = { faction=strformat('unlock:%s', tostring(factionId)), amount=0, time=GetTime() }
+			local _factionTag = name and strformat('%s(%s)', name, tostring(factionId)) or tostring(factionId)
+			self._recentlyRepChanges[_repKey] = { faction=strformat('unlock:%s', _factionTag), amount=0, time=GetTime() }
+			-- Task-lifecycle trigger
+			self:_RecordLifeEvent('faction_unlocks', { factionName=name, factionId=factionId })
 			if nil ~= self._recentlyAppearedVignettes then
 				local _now = GetTime()
 				for _spawnUID, _vigInfo in pairs(self._recentlyAppearedVignettes) do
@@ -10060,30 +10540,32 @@ end
 				end
 			end
 			-- >>>VIGNETTE_DEBUG_END
-			-- >>>QUESTPIN_DEBUG
-			local _pinNow = self:_QuestPinPoolSnapshot()
-			self:_QuestPinCompareAndRecord(self._persistentPinSnapshot or {}, _pinNow,
-				'MAJOR_FACTION_UNLOCKED', strformat('faction=%s', tostring(factionId)))
-			self._persistentPinSnapshot = _pinNow
-			-- >>>QUESTPIN_DEBUG_END
+			-- Phase 5: pin update via map-keyed maintenance helper.
+			self:_UpdateMapPinSnapshot(nil, 'MAJOR_FACTION_UNLOCKED',
+				strformat('faction=%s', tostring(factionId)))
 		end,
 
 		_HandleEventMajorFactionRenownLevelChanged = function(self, factionId, newRenownLevel, oldRenownLevel)
-			local message = "Major faction: " .. factionId .. " renown changed from " .. oldRenownLevel .. " to " .. newRenownLevel
+			local _factionName = self:_MajorFactionName(factionId)
+			local message = _factionName
+				and strformat("Major faction: %s (id=%s) renown changed from %s to %s",
+					_factionName, tostring(factionId), tostring(oldRenownLevel), tostring(newRenownLevel))
+				or  strformat("Major faction: id=%s renown changed from %s to %s",
+					tostring(factionId), tostring(oldRenownLevel), tostring(newRenownLevel))
 			if self.GDE.debug then
 				print(message)
 			end
 			self:_AddTrackingMessage(message)
 			self:_StatusCodeInvalidate(self.invalidateControl[self.invalidateGroupMajorFactionQuests])
-			-- >>>VIGNETTE_DEBUG: use persistent snapshots; VIGNETTES_UPDATED may have already fired
-			local _label = strformat('MAJOR_FACTION_RENOWN_CHANGED faction=%s old=%s new=%s', tostring(factionId), tostring(oldRenownLevel), tostring(newRenownLevel))
-			local _vigNow = self:_VignetteSnapshot()
-			self:_VignetteCompareAndLog(self._persistentVigSnapshot or {}, _vigNow, _label)
-			self._persistentVigSnapshot = _vigNow
+			-- Phase 7: snapshot maintenance is exclusively VIGNETTES_UPDATED's job now.
 			-- Store rep change and do forward vignette lookup
 			self._recentlyRepChanges = self._recentlyRepChanges or {}
 			local _repKey = strformat('renown_%s_%s', tostring(factionId), tostring(GetTime()))
-			self._recentlyRepChanges[_repKey] = { faction=strformat('renown:%s', tostring(factionId)), amount=newRenownLevel, time=GetTime() }
+			local _factionTag = _factionName and strformat('%s(%s)', _factionName, tostring(factionId)) or tostring(factionId)
+			self._recentlyRepChanges[_repKey] = { faction=strformat('renown:%s', _factionTag), amount=newRenownLevel, time=GetTime() }
+			-- Task-lifecycle trigger
+			self:_RecordLifeEvent('renown_changes', { factionName=_factionName, factionId=factionId,
+				oldLevel=oldRenownLevel, newLevel=newRenownLevel })
 			if nil ~= self._recentlyAppearedVignettes then
 				local _now = GetTime()
 				for _spawnUID, _vigInfo in pairs(self._recentlyAppearedVignettes) do
@@ -10101,52 +10583,30 @@ end
 				end
 			end
 			-- >>>VIGNETTE_DEBUG_END
-			-- >>>QUESTPIN_DEBUG
-			local _pinNow = self:_QuestPinPoolSnapshot()
-			self:_QuestPinCompareAndRecord(self._persistentPinSnapshot or {}, _pinNow,
-				'MAJOR_FACTION_RENOWN_CHANGED', strformat('faction=%s old=%s new=%s',
+			-- Phase 5: pin update via map-keyed maintenance helper.
+			self:_UpdateMapPinSnapshot(nil, 'MAJOR_FACTION_RENOWN_CHANGED',
+				strformat('faction=%s old=%s new=%s',
 					tostring(factionId), tostring(oldRenownLevel), tostring(newRenownLevel)))
-			self._persistentPinSnapshot = _pinNow
-			-- >>>QUESTPIN_DEBUG_END
 		end,
 
 		_HandleEventAreaPOIsUpdated = function(self)
 			self:_StatusCodeInvalidate(self.invalidateControl[self.invalidateGroupAreaPOIQuests])
-			-- >>>VIGNETTE_DEBUG
-			-- Use persistent snapshots: state has already changed when this fires
-			local _vigNow = self:_VignetteSnapshot()
-			self:_VignetteCompareAndLog(self._persistentVigSnapshot or {}, _vigNow, 'AREA_POIS_UPDATED')
-			self._persistentVigSnapshot = _vigNow
-			-- >>>VIGNETTE_DEBUG_END
-			-- >>>QUESTPIN_DEBUG: use persistent snapshot so we catch pins that appeared before this event fired
-			local _pinNow = self:_QuestPinPoolSnapshot()
-			self:_QuestPinCompareAndRecord(self._persistentPinSnapshot or {}, _pinNow, 'AREA_POIS_UPDATED', nil)
-			self._persistentPinSnapshot = _pinNow
-			-- Delayed scans: pool may be populated after event fires
+			-- Phase 7: vignette snapshot is no longer touched here — only VIGNETTES_UPDATED
+			-- mutates _persistentVigSnapshot, so its diff reflects real transitions.
+			-- Phase 5: AOI pin update via map-keyed helper. Two delayed re-scans catch
+			-- pins the server populates after the event fires (Blizzard quirk). The
+			-- recently-completed-quest correlation is no longer driven from this passive
+			-- pathway; the action subsystem owns it now.
+			self:_UpdateMapPinSnapshot(nil, 'AREA_POIS_UPDATED', nil)
 			if C_Timer and C_Timer.After then
 				local _self = self
 				for _, delay in ipairs({1.0, 2.0}) do
 					C_Timer.After(delay, function()
-						local _nowPool = _self:_QuestPinPoolSnapshot()
-						local _recentQuests = {}
-						if _self._recentlyCompletedQuestIds then
-							for q, t in pairs(_self._recentlyCompletedQuestIds) do
-								if (GetTime() - t) <= 30 then table.insert(_recentQuests, tostring(q)) end
-							end
-						end
-						local detail = #_recentQuests > 0
-							and strformat('quests=%s delay=%.1fs', table.concat(_recentQuests,','), delay)
-							or strformat('delay=%.1fs', delay)
-						local cnt = _self:_QuestPinCompareAndRecord(_self._persistentPinSnapshot or {}, _nowPool,
-							'AREA_POIS_UPDATED_DELAYED', detail)
-						if cnt > 0 then
-							print(strformat('QUESTPIN_AOI_DELAYED: %.1fs found=%d %s', delay, cnt, detail))
-						end
-						_self._persistentPinSnapshot = _nowPool
+						_self:_UpdateMapPinSnapshot(nil, 'AREA_POIS_UPDATED_DELAYED',
+							strformat('delay=%.1fs', delay))
 					end)
 				end
 			end
-			-- >>>QUESTPIN_DEBUG_END
 		end,
 
 		---
@@ -10191,9 +10651,12 @@ end
 					end
 				end
 			end
-			-- >>>QUESTPIN_DEBUG: update persistent pin snapshot (pool-only) when map is scanned
-			self._persistentPinSnapshot = self:_QuestPinPoolSnapshot()
-			-- >>>QUESTPIN_DEBUG_END
+			-- Phase 5: map-keyed snapshot update via helper (passive, no link writing
+			-- because trigger is nil).
+			self:_UpdateMapPinSnapshot(uiMapID, nil, nil)
+			-- Task #13: detect bonus-objective / task-quest changes for this map +
+			-- its parent (e.g. Atal'Aman <- Zul'Aman, Silbermond <- Eversong).
+			self:_DetectTaskQuestChanges(uiMapID)
 		end,
 
 		_HandleEventGarrisonBuildingActivated = function(self, buildingId)
@@ -10233,7 +10696,13 @@ end
 				-- >>>VIGNETTE_DEBUG: store rep change for vignette correlation
 				self._recentlyRepChanges = self._recentlyRepChanges or {}
 				local repKey = strformat('%s_%s', tostring(factionName), tostring(GetTime()))
-				self._recentlyRepChanges[repKey] = { faction=factionName, amount=amount, time=GetTime() }
+				-- Build a Name(id) tag analogous to the Major-Faction path so VIGNETTE_REP_LINK
+				-- entries carry both the human name and the raw factionID.
+				local _rawFactionId = self:_RawFactionId(factionName)
+				local _factionTag   = _rawFactionId
+					and strformat('%s(%s)', factionName, tostring(_rawFactionId))
+					or  factionName
+				self._recentlyRepChanges[repKey] = { faction=_factionTag, amount=amount, time=GetTime() }
 				-- Forward lookup: vignette appeared before this rep event fired
 				if nil ~= self._recentlyAppearedVignettes then
 					local now = GetTime()
@@ -10241,7 +10710,7 @@ end
 					for spawnUID, vigInfo in pairs(self._recentlyAppearedVignettes) do
 						if (now - vigInfo.time) <= 10 then
 							local _coords = vigInfo.coords or tostring(self:Coordinates())
-							local _src = strformat('rep=%s+%s | coords=%s', tostring(factionName), tostring(amount), _coords)
+							local _src = strformat('rep=%s+%s | coords=%s', _factionTag, tostring(amount), _coords)
 							if self:_IsNewVignetteLink(vigInfo.guid, _src, vigInfo.name) then
 								local msg = strformat('VIGNETTE_REP_LINK (vig before rep): vignette=%s name=%s | %s', vigInfo.guid, tostring(vigInfo.name), _src)
 								print(msg)
@@ -10273,6 +10742,29 @@ end
 		--	  2. C_Reputation / GetFactionInfo scan — live WoW panel, covers factions not yet in Grail data
 		--	  3. "N:<name>" fallback        — preserves the name for later manual resolution
 		--
+		-- Returns the raw numeric factionID for a given faction name (or nil).
+		-- Used to embed both name and ID in rep-change tags so VIGNETTE_REP_LINK
+		-- entries are parsable AND human-readable.
+		_RawFactionId = function(self, factionName)
+			if not factionName then return nil end
+			if C_Reputation and C_Reputation.GetNumFactions and C_Reputation.GetFactionDataByIndex then
+				for i = 1, C_Reputation.GetNumFactions() do
+					local info = C_Reputation.GetFactionDataByIndex(i)
+					if info and info.name == factionName and info.factionID and info.factionID > 0 then
+						return info.factionID
+					end
+				end
+			elseif GetNumFactions and GetFactionInfo then
+				for i = 1, GetNumFactions() do
+					local name, _, _, _, _, _, _, _, _, _, _, _, _, factionID = GetFactionInfo(i)
+					if name == factionName and factionID and factionID > 0 then
+						return factionID
+					end
+				end
+			end
+			return nil
+		end,
+
 		_ResolveFactionId = function(self, factionName)
 			local hexId = self.reverseReputationMapping[factionName]
 			if nil ~= hexId then return hexId end
@@ -10393,9 +10885,7 @@ end
 			-- Since querying the server is a little noisy we force it to be less so, reseting values later
 			local silentValue, manualValue = self.GDE.silent, self.manuallyExecutingServerQuery
 			self.GDE.silent, self.manuallyExecutingServerQuery = true, false
-			-- >>>VIGNETTE_DEBUG
-			local _vigSnapBeforeLoot = self:_VignetteSnapshot()
-			-- >>>VIGNETTE_DEBUG_END
+			-- Phase 7: pre-loot vignette snapshot removed (was input to no-op stub).
 -- The old way of doing this was to query all the quests that were completed and see how they differ from the currently completed
 -- list and then assume the newly completed one(s) are associated with the treasure.  However, that is a little expensive.  Thus,
 -- only the treasure quests associated with the current zone are queried to see if there is any change in their status.
@@ -10441,9 +10931,7 @@ end
 				self:_MarkQuestComplete(questId, true)
 			end
 			self:_ProcessServerBackup(true)
-			-- >>>VIGNETTE_DEBUG
-			self:_VignetteCompareAndLog(_vigSnapBeforeLoot, self:_VignetteSnapshot(),
-				strformat('LOOT_CLOSED guid=%s', tostring(self.lootingGUID)))
+			-- Phase 7: _VignetteCompareAndLog stub call removed.
 			-- Correlate disappeared vignettes with this creature and its completed quests
 			if nil ~= self._recentlyDisappearedVignettes and nil ~= self.lootingGUID then
 				local lootSpawnUID = select(7, strsplit('-', self.lootingGUID))
@@ -13128,13 +13616,325 @@ print("end:", strgsub(controlTable.something, "|", "*"))
 		end,
 		-- >>>WARBAND_DEBUG_END
 
+		-- >>>LIGHT_COMPLETION_BEGIN: cheap polling-style completion detector.
+		-- Sister to _CheckWarbandQuestChanges, but instead of the full backup-vs-current
+		-- bitmask compare (~12 ms / call) it just diffs C_QuestLog.GetAllCompletedQuestIDs()
+		-- against a local set. Triggered on the high-frequency events (QUEST_LOG_UPDATE,
+		-- CRITERIA_UPDATE, QUEST_WATCH_UPDATE) with a 0.25 s throttle. Catches the silent
+		-- completions PrintQuests saw (Tracking Quests, Warband-sync, auto-completes) that
+		-- the heavy warband path misses because Grail unregisters QUEST_LOG_UPDATE after init.
+		_InitLightweightCompletionCache = function(self)
+			self._lightCompletionCache = {}
+			self._lightCompletionLastCheck = 0
+			if C_QuestLog and C_QuestLog.GetAllCompletedQuestIDs then
+				local ids = C_QuestLog.GetAllCompletedQuestIDs()
+				if ids then
+					for _, q in ipairs(ids) do self._lightCompletionCache[q] = true end
+				end
+			end
+		end,
+
+		_CheckLightweightCompletions = function(self, trigger)
+			if not (C_QuestLog and C_QuestLog.GetAllCompletedQuestIDs) then return end
+			if not self._lightCompletionCache then return end
+			local now = GetTime()
+			if now - (self._lightCompletionLastCheck or 0) < 0.25 then return end
+			self._lightCompletionLastCheck = now
+			local ids = C_QuestLog.GetAllCompletedQuestIDs()
+			if not ids then return end
+			-- Drop a stale book-handover so it can't pollute future detections.
+			local handover = self._recentBookHandover
+			if handover and (now - handover.time) > 10 then
+				self._recentBookHandover = nil
+				handover = nil
+			end
+			local cache = self._lightCompletionCache
+			local coords
+			for _, q in ipairs(ids) do
+				if not cache[q] then
+					if not coords then coords = tostring(self:Coordinates()) end
+					local title = self:QuestName(q) or 'UNKNOWN'
+					local msg = strformat('LIGHT_QUEST_COMPLETE [%s]: quest=%d title=%s coords=%s',
+						trigger, q, title, coords)
+					print(msg)
+					self:_AddTrackingMessage(msg)
+					self:_MarkQuestComplete(q, true)
+					cache[q] = true
+					-- Book-handover correlation: if a book was just read and a vignette
+					-- disappeared, the quest likely was the book's completion. The
+					-- VIGNETTES_UPDATED handler couldn't write 'Book read completes'
+					-- because the server pushed the quest state AFTER the vignette diff;
+					-- we close that gap here with a synthetic BOOK_QUEST_LINK.
+					if handover and (now - handover.time) <= 10 then
+						local bctx = handover.bctx
+						local vigNames = {}
+						for _, v in ipairs(handover.disappearedVigs or {}) do
+							table.insert(vigNames, v.name or v.guid or '?')
+						end
+						local bmsg = strformat(
+							'BOOK_QUEST_LINK: quest=%d title=%s | book=%s(%s) | coords=%s | vignette=%s',
+							q, title,
+							tostring(bctx.targetName), tostring(bctx.npcId),
+							tostring(bctx.coordinates),
+							table.concat(vigNames, ', '))
+						print(bmsg)
+						self:_AddTrackingMessage(bmsg)
+						-- One-shot: same book event can correlate multiple quests if the
+						-- server pushed several in this 10s window — keep the handover
+						-- active until TTL expires.
+					end
+				end
+			end
+		end,
+		-- >>>LIGHT_COMPLETION_END
+
+		-- >>>TASK_LIFECYCLE_BEGIN: Bonus-Objective / Task-Quest appearance tracker.
+		-- Solves the blind spot: server-side bonus-objective unlocks are invisible
+		-- to the client until the player visits the relevant zone. By keeping a
+		-- per-map task-quest snapshot persistently AND a trigger cache of recent
+		-- life events (level-ups, renown ticks, quest accept/turnin/abandon, faction
+		-- unlocks), the diff at map-open can retrospectively correlate appearances
+		-- with the triggers that likely caused them.
+		_lifeEventTTL = 14 * 86400,  -- 14 days
+		_lifeEventMax = {
+			level_ups = 50, renown_changes = 100, faction_unlocks = 50,
+			quest_accepts = 500, quest_turnins = 500, quest_abandons = 200,
+		},
+		_RecordLifeEvent = function(self, eventType, payload)
+			GrailDatabasePlayer.recentLifeEvents = GrailDatabasePlayer.recentLifeEvents or {}
+			local bucket = GrailDatabasePlayer.recentLifeEvents[eventType]
+			if not bucket then
+				bucket = {}
+				GrailDatabasePlayer.recentLifeEvents[eventType] = bucket
+			end
+			payload.time = payload.time or GetTime()
+			payload.epoch = payload.epoch or time()  -- absolute time for cross-session correlation
+			table.insert(bucket, payload)
+			-- Trim FIFO by max count
+			local max = self._lifeEventMax[eventType] or 200
+			while #bucket > max do table.remove(bucket, 1) end
+			-- Drop entries older than TTL (epoch-based, so it survives sessions)
+			local cutoff = time() - self._lifeEventTTL
+			while bucket[1] and bucket[1].epoch and bucket[1].epoch < cutoff do
+				table.remove(bucket, 1)
+			end
+		end,
+		-- Returns list of events of eventType whose epoch is >= sinceEpoch.
+		_RecentLifeEvents = function(self, eventType, sinceEpoch)
+			local bucket = GrailDatabasePlayer.recentLifeEvents and GrailDatabasePlayer.recentLifeEvents[eventType]
+			if not bucket then return {} end
+			local out = {}
+			for _, e in ipairs(bucket) do
+				if e.epoch and e.epoch >= sinceEpoch then table.insert(out, e) end
+			end
+			return out
+		end,
+		-- Renders a single trigger entry compactly, e.g. "82@2.1d" or "Hara'ti(2710):3->4@1.5d".
+		_FormatLifeEventSince = function(self, eventType, e, nowEpoch)
+			local agoSec = nowEpoch - (e.epoch or nowEpoch)
+			local ago
+			if agoSec < 60 then ago = strformat('%.0fs', agoSec)
+			elseif agoSec < 3600 then ago = strformat('%.1fm', agoSec/60)
+			elseif agoSec < 86400 then ago = strformat('%.1fh', agoSec/3600)
+			else ago = strformat('%.1fd', agoSec/86400) end
+			if eventType == 'level_ups' then
+				return strformat('%s@%s', tostring(e.value or '?'), ago)
+			elseif eventType == 'renown_changes' then
+				return strformat('%s(%s):%s->%s@%s', tostring(e.factionName or '?'), tostring(e.factionId or '?'),
+					tostring(e.oldLevel or '?'), tostring(e.newLevel or '?'), ago)
+			elseif eventType == 'faction_unlocks' then
+				return strformat('%s(%s)@%s', tostring(e.factionName or '?'), tostring(e.factionId or '?'), ago)
+			else  -- quest_accepts / quest_turnins / quest_abandons
+				return strformat('%s@%s', tostring(e.questId or '?'), ago)
+			end
+		end,
+
+		-- Returns a single TaskQuest set { [qid]=true, ... } for the given mapID.
+		_TaskQuestSetForMap = function(self, mapID)
+			local set = {}
+			if not (C_TaskQuest and C_TaskQuest.GetQuestsOnMap and mapID) then return set end
+			local tasks = C_TaskQuest.GetQuestsOnMap(mapID)
+			if tasks then
+				for _, task in ipairs(tasks) do
+					local qid = tonumber(task.questID)
+					if qid then set[qid] = true end
+				end
+			end
+			return set
+		end,
+
+		-- Diffs current TaskQuest set against the persistent per-map snapshot and
+		-- writes TASK_QUEST_APPEARED / TASK_QUEST_DISAPPEARED entries with trigger
+		-- correlation. First scan of a map only seeds the snapshot — no events.
+		_DetectTaskQuestChanges = function(self, mapID)
+			if not mapID then return end
+			GrailDatabasePlayer.taskQuestSnapshotByMap = GrailDatabasePlayer.taskQuestSnapshotByMap or {}
+			local snaps = GrailDatabasePlayer.taskQuestSnapshotByMap
+			local now      = self:_TaskQuestSetForMap(mapID)
+			local prev     = snaps[mapID]
+			-- Also try parent map (e.g. Atal'Aman in Zul'Aman, Silbermond in Eversong)
+			local parentID
+			local mi = C_Map and C_Map.GetMapInfo and C_Map.GetMapInfo(mapID)
+			if mi and mi.parentMapID and mi.parentMapID > 0 then parentID = mi.parentMapID end
+			local nowParent  = parentID and self:_TaskQuestSetForMap(parentID) or {}
+			local prevParent = parentID and snaps[parentID] or nil
+
+			local function scanOne(mid, currentSet, prevEntry)
+				if not mid or not next(currentSet) and (not prevEntry or not prevEntry.questIds or not next(prevEntry.questIds)) then return end
+				if not prevEntry then
+					-- First-time: just seed, no event
+					snaps[mid] = { questIds = currentSet, time = time() }
+					return
+				end
+				local lastTime = prevEntry.time or 0
+				local appeared, disappeared = {}, {}
+				for qid in pairs(currentSet) do
+					if not (prevEntry.questIds and prevEntry.questIds[qid]) then table.insert(appeared, qid) end
+				end
+				if prevEntry.questIds then
+					for qid in pairs(prevEntry.questIds) do
+						if not currentSet[qid] then table.insert(disappeared, qid) end
+					end
+				end
+				if #appeared == 0 and #disappeared == 0 then
+					-- No change — just refresh the snapshot time so the next compare has fresh baseline
+					snaps[mid].time = time()
+					return
+				end
+				local nowEpoch = time()
+				local function correlate()
+					local types = { 'level_ups', 'renown_changes', 'faction_unlocks', 'quest_accepts', 'quest_turnins', 'quest_abandons' }
+					local parts = {}
+					for _, t in ipairs(types) do
+						local evs = self:_RecentLifeEvents(t, lastTime)
+						if #evs > 0 then
+							local items = {}
+							for _, e in ipairs(evs) do
+								table.insert(items, self:_FormatLifeEventSince(t, e, nowEpoch))
+							end
+							table.insert(parts, strformat('%s=[%s]', t, table.concat(items, ',')))
+						end
+					end
+					return parts
+				end
+				local correlations = correlate()
+				local sinceStr
+				local agoSec = nowEpoch - lastTime
+				if agoSec < 60 then sinceStr = strformat('%.0fs', agoSec)
+				elseif agoSec < 3600 then sinceStr = strformat('%.1fm', agoSec/60)
+				elseif agoSec < 86400 then sinceStr = strformat('%.1fh', agoSec/3600)
+				else sinceStr = strformat('%.1fd', agoSec/86400) end
+				local correlationStr = (#correlations > 0) and (' | ' .. table.concat(correlations, ' | ')) or ' | triggers=none'
+				local coords = tostring(self:Coordinates())
+				for _, qid in ipairs(appeared) do
+					local title = self:QuestName(qid) or 'UNKNOWN'
+					local msg = strformat('TASK_QUEST_APPEARED: quest=%d title=%s | mapID=%s | coords=%s | since_last_open=%s%s',
+						qid, title, tostring(mid), coords, sinceStr, correlationStr)
+					print(msg)
+					self:_AddTrackingMessage(msg)
+				end
+				for _, qid in ipairs(disappeared) do
+					local title = self:QuestName(qid) or 'UNKNOWN'
+					local msg = strformat('TASK_QUEST_DISAPPEARED: quest=%d title=%s | mapID=%s | coords=%s | since_last_open=%s%s',
+						qid, title, tostring(mid), coords, sinceStr, correlationStr)
+					print(msg)
+					self:_AddTrackingMessage(msg)
+				end
+				snaps[mid] = { questIds = currentSet, time = nowEpoch }
+			end
+
+			scanOne(mapID, now, prev)
+			if parentID then scanOne(parentID, nowParent, prevParent) end
+		end,
+		-- >>>TASK_LIFECYCLE_END
+
 		-- >>>QUESTPIN_DEBUG_BEGIN: remove this entire block when no longer needed
+		--
+		-- Action-Baseline (Phase 1): Pre-action wide snapshot for accept/turnin diffs.
+		-- Captured at QUEST_DETAIL/QUEST_PROGRESS/QUEST_COMPLETE, consumed at
+		-- QUEST_ACCEPTED/QUEST_TURNED_IN. Lazy refresh: same map AND <=30s old keeps
+		-- the existing baseline so that follow-up actions share a stable reference.
+		_CapturePinActionBaseline = function(self, label)
+			local mapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit('player')
+			local b = self._pendingPinActionBaseline
+			if b and b.mapID == mapID and (GetTime() - b.time) <= 30 then return end
+			-- Phase 7 follow-up: hub_offer filter removed after empirical HUB-DBG testing
+			-- on map 2395 showed stable hub-pin diffs without phantoms. The earlier
+			-- phantom pattern was caused by parallel snapshot mutators (Phase 5/7 fixed),
+			-- not by hub_offer being inherently lazy. Re-add the filter only if phantoms
+			-- reappear in real-world data.
+			self._pendingPinActionBaseline = {
+				mapID = mapID, snapshot = self:_QuestPinSnapshot(),
+				time = GetTime(), label = label,
+			}
+		end,
+
+		-- Schedules four diffs (1/3/7/15s) against the pre-action baseline. The 15s
+		-- slot is required for hub-offer pins which the server delivers late.
+		-- After the last slot the baseline is rolled forward so subsequent actions
+		-- compare against an up-to-date stand.
+		-- Phase 5: action-baseline lifecycle is now consume-on-diff. The first action
+		-- after a capture takes ownership of the baseline and clears it — overlapping
+		-- actions (e.g. turnin -> follow-up accept) no longer share a stale snapshot,
+		-- which is what produced the cross-tagged links in earlier tests.
+		-- Map-match remains as a sanity check; the time limit is gone because the
+		-- baseline cannot live past one action anyway.
+		_RunPinActionDiff = function(self, action, qId)
+			local b = self._pendingPinActionBaseline
+			if not b then return end
+			local mapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit('player')
+			if b.mapID ~= mapID then return end
+			-- Consume immediately: the next capture-trigger sets a fresh baseline.
+			self._pendingPinActionBaseline = nil
+			local _self = self
+			local detail = strformat('quest=%s base=%s', tostring(qId), tostring(b.label))
+			local delays = { 1.0, 3.0, 7.0, 15.0 }
+			for _, delay in ipairs(delays) do
+				C_Timer.After(delay, function()
+					local now = _self:_QuestPinSnapshot()
+					_self:_QuestPinCompareAndRecord(b.snapshot, now, action,
+						strformat('%s delay=%.1f', detail, delay))
+				end)
+			end
+		end,
+
+		-- Phase 5: per-map maintenance snapshot. Passive (no link writing on its own —
+		-- correlation is the action-diff's job). Sets _persistentPinSnapshot as an alias
+		-- for the current map so existing slash-commands keep working unchanged.
+		-- If a previous snapshot for the same mapID exists, a diff runs against it; the
+		-- baseWasEmpty guard in _RecordQuestPinLink suppresses link writing on first warm-up.
+		_UpdateMapPinSnapshot = function(self, mapID, trigger, triggerDetail)
+			mapID = mapID or (C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit('player'))
+			if not mapID then return end
+			self._pinSnapshotByMap = self._pinSnapshotByMap or {}
+			local before = self._pinSnapshotByMap[mapID] or {}
+			local now    = self:_QuestPinPoolSnapshot()
+			if next(before) ~= nil and trigger then
+				self:_QuestPinCompareAndRecord(before, now, trigger, triggerDetail)
+			end
+			self._pinSnapshotByMap[mapID] = now
+			self._persistentPinSnapshot   = now  -- alias for legacy readers
+		end,
+
 		-- Pool-only snapshot: only includes pins currently visible in WorldMapFrame pools.
 		-- Use this for QUEST_PIN_LINK diffs to avoid false positives from GetQuestsOnMap.
 		_QuestPinPoolSnapshot = function(self)
 			local snapshot = {}
 			local startMapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit('player')
 			if not startMapID then return snapshot end
+			-- B-consolidated: pool snapshot is always single-map (current player map),
+			-- but we still set the maps-set so _QuestPinCompareAndRecord's map-diff
+			-- logic stays consistent across snapshot sources.
+			local function addPin(key, info)
+				local existing = snapshot[key]
+				if existing then
+					existing.maps[startMapID] = true
+				else
+					info.maps = { [startMapID] = true }
+					info.primaryMap = startMapID
+					snapshot[key] = info
+				end
+			end
 			-- Scan QuestHub dataProvider.questOffers
 			if WorldMapFrame and WorldMapFrame.pinPools then
 				local hubPool = WorldMapFrame.pinPools['QuestHubPinTemplate']
@@ -13146,14 +13946,11 @@ print("end:", strgsub(controlTable.something, "|", "*"))
 							for qid, qinfo in pairs(hpin.dataProvider.questOffers) do
 								qid = tonumber(qid)
 								if qid then
-									local key = strformat('offer:%d', qid)
-									if not snapshot[key] then
-										snapshot[key] = { questId=qid, pinType='hub_offer',
-											name=qinfo.questName,
-											hubPoiID=hpin.poiInfo and hpin.poiInfo.areaPoiID,
-											hubName=hpin.name or (hpin.poiInfo and hpin.poiInfo.name),
-											coords=strformat('%d:%.2f,%.2f', startMapID, (qinfo.x or 0)*100, (qinfo.y or 0)*100) }
-									end
+									addPin(strformat('offer:%d', qid), { questId=qid, pinType='hub_offer',
+										name=qinfo.questName,
+										hubPoiID=hpin.poiInfo and hpin.poiInfo.areaPoiID,
+										hubName=hpin.name or (hpin.poiInfo and hpin.poiInfo.name),
+										coords=strformat('%d:%.2f,%.2f', startMapID, (qinfo.x or 0)*100, (qinfo.y or 0)*100) })
 								end
 							end
 						end
@@ -13173,15 +13970,12 @@ print("end:", strgsub(controlTable.something, "|", "*"))
 						for _, pin in ipairs(_pins) do
 							local qid = pin.questID
 							if qid and qid > 0 then
-								local key = strformat('offer:%d', qid)
-								if not snapshot[key] then
-									snapshot[key] = { questId=qid,
-										pinType=pin.isCampaign and 'campaign_offer' or 'offer',
-										isCampaign=pin.isCampaign, questLineID=pin.questLineID,
-										questLineName=pin.questLineName, name=pin.questName,
-										coords=strformat('%d:%.2f,%.2f', startMapID,
-											(pin.normalizedX or 0)*100, (pin.normalizedY or 0)*100) }
-								end
+								addPin(strformat('offer:%d', qid), { questId=qid,
+									pinType=pin.isCampaign and 'campaign_offer' or 'offer',
+									isCampaign=pin.isCampaign, questLineID=pin.questLineID,
+									questLineName=pin.questLineName, name=pin.questName,
+									coords=strformat('%d:%.2f,%.2f', startMapID,
+										(pin.normalizedX or 0)*100, (pin.normalizedY or 0)*100) })
 							end
 						end
 					end
@@ -13194,16 +13988,13 @@ print("end:", strgsub(controlTable.something, "|", "*"))
 					for _, task in ipairs(tasks) do
 						local qid = tonumber(task.questID)
 						if qid then
-							local key = strformat('task:%d', qid)
-							if not snapshot[key] then
-								snapshot[key] = {
-									questId    = qid,
-									pinType    = 'task',
-									inProgress = task.inProgress,
-									coords     = strformat('%d:%.2f,%.2f', startMapID,
-										(task.x or 0)*100, (task.y or 0)*100),
-								}
-							end
+							addPin(strformat('task:%d', qid), {
+								questId    = qid,
+								pinType    = 'task',
+								inProgress = task.inProgress,
+								coords     = strformat('%d:%.2f,%.2f', startMapID,
+									(task.x or 0)*100, (task.y or 0)*100),
+							})
 						end
 					end
 				end
@@ -13215,6 +14006,21 @@ print("end:", strgsub(controlTable.something, "|", "*"))
 			local snapshot = {}
 			local startMapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit('player')
 			if not startMapID then return snapshot end
+			-- B-consolidated: each pin tracks the set of mapIDs where it appears, so a
+			-- pin visible on multiple map hierarchy levels is represented exactly once
+			-- in the snapshot but the diff can detect per-map disappearances.
+			-- First occurrence wins for primary coords/pinType; later occurrences only
+			-- add their mapID to the maps-set.
+			local function addPin(key, mapID, info)
+				local existing = snapshot[key]
+				if existing then
+					existing.maps[mapID] = true
+				else
+					info.maps = { [mapID] = true }
+					info.primaryMap = mapID
+					snapshot[key] = info
+				end
+			end
 			-- Walk the full map hierarchy so parent-map pins are included
 			local mapID = startMapID
 			for depth = 1, 5 do
@@ -13225,12 +14031,12 @@ print("end:", strgsub(controlTable.something, "|", "*"))
 						for _, pin in ipairs(pins) do
 							local qid = tonumber(pin.questID)
 							if qid then
-								snapshot[strformat('offer:%d', qid)] = {
+								addPin(strformat('offer:%d', qid), mapID, {
 									questId    = qid,
 									pinType    = pin.isCampaign and 'campaign_offer' or 'offer',
 									isCampaign = pin.isCampaign,
 									coords     = strformat('%d:%.2f,%.2f', mapID, (pin.x or 0)*100, (pin.y or 0)*100),
-								}
+								})
 							end
 						end
 					end
@@ -13241,12 +14047,12 @@ print("end:", strgsub(controlTable.something, "|", "*"))
 						for _, poiID in ipairs(pois) do
 							local info = C_AreaPoiInfo.GetAreaPOIInfo(mapID, poiID)
 							if info and info.atlasName and strfind(info.atlasName, '[Qq]uest') then
-								snapshot[strformat('hub:%d', poiID)] = {
+								addPin(strformat('hub:%d', poiID), mapID, {
 									questId = poiID, pinType = 'hub', name = info.name, atlas = info.atlasName,
 									coords  = strformat('%d:%.2f,%.2f', mapID,
 										(info.position and info.position.x or 0)*100,
 										(info.position and info.position.y or 0)*100),
-								}
+								})
 							end
 						end
 					end
@@ -13266,18 +14072,15 @@ print("end:", strgsub(controlTable.something, "|", "*"))
 							for qid, qinfo in pairs(dp.questOffers) do
 								qid = tonumber(qid)
 								if qid then
-									local key = strformat('offer:%d', qid)
-									if not snapshot[key] then
-										snapshot[key] = {
-											questId    = qid,
-											pinType    = 'hub_offer',
-											name       = qinfo.questName,
-											hubPoiID   = hpin.poiInfo and hpin.poiInfo.areaPoiID,
-											hubName    = hpin.name or (hpin.poiInfo and hpin.poiInfo.name),
-											coords     = strformat('%d:%.2f,%.2f', startMapID,
-												(qinfo.x or 0)*100, (qinfo.y or 0)*100),
-										}
-									end
+									addPin(strformat('offer:%d', qid), startMapID, {
+										questId    = qid,
+										pinType    = 'hub_offer',
+										name       = qinfo.questName,
+										hubPoiID   = hpin.poiInfo and hpin.poiInfo.areaPoiID,
+										hubName    = hpin.name or (hpin.poiInfo and hpin.poiInfo.name),
+										coords     = strformat('%d:%.2f,%.2f', startMapID,
+											(qinfo.x or 0)*100, (qinfo.y or 0)*100),
+									})
 								end
 							end
 						end
@@ -13299,19 +14102,16 @@ print("end:", strgsub(controlTable.something, "|", "*"))
 						for _, pin in ipairs(_pins) do
 							local qid = pin.questID
 							if qid and qid > 0 then
-								local key = strformat('offer:%d', qid)
-								if not snapshot[key] then
-									snapshot[key] = {
-										questId       = qid,
-										pinType       = pin.isCampaign and 'campaign_offer' or 'offer',
-										isCampaign    = pin.isCampaign,
-										questLineID   = pin.questLineID,
-										questLineName = pin.questLineName,
-										name          = pin.questName,
-										coords        = strformat('%d:%.2f,%.2f', startMapID,
-											(pin.normalizedX or 0)*100, (pin.normalizedY or 0)*100),
-									}
-								end
+								addPin(strformat('offer:%d', qid), startMapID, {
+									questId       = qid,
+									pinType       = pin.isCampaign and 'campaign_offer' or 'offer',
+									isCampaign    = pin.isCampaign,
+									questLineID   = pin.questLineID,
+									questLineName = pin.questLineName,
+									name          = pin.questName,
+									coords        = strformat('%d:%.2f,%.2f', startMapID,
+										(pin.normalizedX or 0)*100, (pin.normalizedY or 0)*100),
+								})
 							end
 						end
 					end
@@ -13326,17 +14126,17 @@ print("end:", strgsub(controlTable.something, "|", "*"))
 						if quests then
 							for _, qinfo in ipairs(quests) do
 								local qid = qinfo.questID
-								if qid and not snapshot[strformat('offer:%d', qid)] then
-									snapshot[strformat('offer:%d', qid)] = {
+								if qid then
+									addPin(strformat('offer:%d', qid), startMapID, {
 										questId      = qid,
 										pinType      = 'campaign_offer',
 										isCampaign   = true,
 										questLineID  = ql.questLineID,
 										questLineName= ql.questLineName,
-											name         = qinfo.questName or (C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(qid)),
+										name         = qinfo.questName or (C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(qid)),
 										coords       = strformat('%d:%.2f,%.2f', startMapID,
 											(qinfo.x or 0)*100, (qinfo.y or 0)*100),
-									}
+									})
 								end
 							end
 						end
@@ -13350,16 +14150,60 @@ print("end:", strgsub(controlTable.something, "|", "*"))
 					for _, task in ipairs(tasks) do
 						local qid = tonumber(task.questID)
 						if qid then
-							local key = strformat('task:%d', qid)
-							if not snapshot[key] then
-								snapshot[key] = { questId=qid, pinType='task', inProgress=task.inProgress,
-									coords=strformat('%d:%.2f,%.2f', startMapID, (task.x or 0)*100, (task.y or 0)*100) }
-							end
+							addPin(strformat('task:%d', qid), startMapID, {
+								questId=qid, pinType='task', inProgress=task.inProgress,
+								coords=strformat('%d:%.2f,%.2f', startMapID, (task.x or 0)*100, (task.y or 0)*100),
+							})
 						end
 					end
 				end
 			end
 			return snapshot
+		end,
+
+		-- Phase 3: pin→quest correlation source.
+		-- 1) If the trigger string itself carries an action tag (accept:<id>/turnin:<id>),
+		--    that's the strongest signal and is returned verbatim.
+		-- 2) Otherwise we fall back to recent completed AND accepted quest buckets within
+		--    a 10s window. Including _recentlyAcceptedQuestIds is what fixes the
+		--    block-quest-disappeared case which previously logged quests=none.
+		_PinActionCorrelation = function(self, trigger, now)
+			if trigger then
+				local p7 = strsub(trigger, 1, 7)
+				if p7 == 'accept:' or p7 == 'turnin:' then
+					return trigger
+				end
+			end
+			local qList = {}
+			local buckets = { self._recentlyCompletedQuestIds, self._recentlyAcceptedQuestIds }
+			for _, src in ipairs(buckets) do
+				if src then
+					for qId, qTime in pairs(src) do
+						if (now - qTime) <= 10 then table.insert(qList, tostring(qId)) end
+					end
+				end
+			end
+			if #qList > 0 then return table.concat(qList, ',') end
+			return 'none'
+		end,
+
+		-- Caps db.questPinEvents at a configurable limit using FIFO. Called at the end
+		-- of each _QuestPinCompareAndRecord run. A small buffer above the limit avoids
+		-- trimming on every insert — the trim only kicks in when the buffer is full.
+		-- Limit is configurable via GDE.questPinEventsLimit (default 5000).
+		_TrimQuestPinEvents = function(self)
+			local db = GrailDatabase
+			local events = db and db.questPinEvents
+			if not events then return end
+			local limit = (self.GDE and self.GDE.questPinEventsLimit) or 5000
+			local count = #events
+			if count <= limit + 500 then return end   -- buffer: trim only every ~500 events
+			local newArr = {}
+			local start = count - limit + 1
+			for i = start, count do
+				newArr[#newArr + 1] = events[i]
+			end
+			db.questPinEvents = newArr
 		end,
 
 		_QuestPinCompareAndRecord = function(self, before, after, trigger, triggerDetail)
@@ -13370,62 +14214,139 @@ print("end:", strgsub(controlTable.something, "|", "*"))
 			local now    = GetTime()
 			local count  = 0
 			local baseWasEmpty = (next(before) == nil)
+			local pinQuestStr  = self:_PinActionCorrelation(trigger, now)
+			-- B-consolidated helper: returns sorted comma-joined map list or '' if empty.
+			local function mapListStr(maps)
+				if not maps then return '' end
+				local list = {}
+				for m in pairs(maps) do table.insert(list, m) end
+				if #list == 0 then return '' end
+				table.sort(list)
+				return table.concat(list, ',')
+			end
+			-- B-consolidated helper: returns sorted list of map IDs that are in setA but not setB.
+			local function mapsMinus(setA, setB)
+				local out = {}
+				if setA then
+					for m in pairs(setA) do
+						if not (setB and setB[m]) then table.insert(out, m) end
+					end
+				end
+				table.sort(out)
+				return out
+			end
 			for key, info in pairs(before) do
 				if not after[key] then
-					local idxKey = strformat('%s|disappeared|%s', key, trigger)
+					-- Key fully gone — disappeared on ALL maps it was tracked on.
+					local mapList = mapListStr(info.maps)
+					local idxKey = strformat('%s|disappeared|%s|%s', key, mapList, trigger)
 					if not db.questPinEventIndex[idxKey] then
 						db.questPinEventIndex[idxKey] = true
 						table.insert(db.questPinEvents, { questId=info.questId, pinType=info.pinType, event='disappeared',
 							trigger=trigger, triggerDetail=triggerDetail, coords=info.coords or coords,
-							name=info.name, atlas=info.atlas, time=now })
+							name=info.name, atlas=info.atlas, time=now,
+							maps=mapList ~= '' and mapList or nil })
 						count = count + 1
-						local msg = strformat('QUESTPIN: disappeared questId=%s type=%s | trigger=%s %s | coords=%s',
-							tostring(info.questId), tostring(info.pinType), trigger, tostring(triggerDetail), info.coords or coords)
+						local mapsSuffix = mapList ~= '' and (' | maps='..mapList) or ''
+						local msg = strformat('QUESTPIN: disappeared questId=%s type=%s | trigger=%s %s | coords=%s%s',
+							tostring(info.questId), tostring(info.pinType), trigger, tostring(triggerDetail), info.coords or coords, mapsSuffix)
 						print(msg)
 						self:_AddTrackingMessage(msg)
-						-- Link disappeared pin to the quest that triggered its removal
-						local pinQuestStr = 'none'
-						if nil ~= self._recentlyCompletedQuestIds then
-							local qList = {}
-							for qId, qTime in pairs(self._recentlyCompletedQuestIds) do
-								if (now - qTime) <= 10 then table.insert(qList, tostring(qId)) end
-							end
-							if #qList > 0 then pinQuestStr = table.concat(qList, ',') end
-						end
+						local linkCoords = (info.coords or coords) .. (mapList ~= '' and (' | maps='..mapList) or '')
 						self:_RecordQuestPinLink(key, info.pinType, info.name,
-							strformat('%s|disappeared', pinQuestStr), info.coords or coords, baseWasEmpty)
+							strformat('%s|disappeared', pinQuestStr), linkCoords, baseWasEmpty)
 					end
 				end
 			end
 			for key, info in pairs(after) do
 				if not before[key] then
-					local idxKey = strformat('%s|appeared|%s', key, trigger)
+					-- Fully new key — appeared on ALL maps where currently tracked.
+					local mapList = mapListStr(info.maps)
+					local idxKey = strformat('%s|appeared|%s|%s', key, mapList, trigger)
 					if not db.questPinEventIndex[idxKey] then
 						db.questPinEventIndex[idxKey] = true
 						table.insert(db.questPinEvents, { questId=info.questId, pinType=info.pinType, event='appeared',
 							trigger=trigger, triggerDetail=triggerDetail, coords=info.coords or coords,
-							name=info.name, atlas=info.atlas, time=now })
+							name=info.name, atlas=info.atlas, time=now,
+							maps=mapList ~= '' and mapList or nil })
 						count = count + 1
-						local msg = strformat('QUESTPIN: appeared questId=%s type=%s | trigger=%s %s | coords=%s',
-							tostring(info.questId), tostring(info.pinType), trigger, tostring(triggerDetail), info.coords or coords)
+						local mapsSuffix = mapList ~= '' and (' | maps='..mapList) or ''
+						local msg = strformat('QUESTPIN: appeared questId=%s type=%s | trigger=%s %s | coords=%s%s',
+							tostring(info.questId), tostring(info.pinType), trigger, tostring(triggerDetail), info.coords or coords, mapsSuffix)
 						print(msg)
 						self:_AddTrackingMessage(msg)
 						-- Store for reverse quest→pin lookup in _MarkQuestComplete
 						self._recentlyAppearedPins = self._recentlyAppearedPins or {}
 						self._recentlyAppearedPins[key] = { pinType=info.pinType, name=info.name, coords=info.coords or coords, time=now }
-						-- Forward pin→quest link: check recent completed quests
-						local pinQuestStr = 'none'
-						if nil ~= self._recentlyCompletedQuestIds then
-							local qList = {}
-							for qId, qTime in pairs(self._recentlyCompletedQuestIds) do
-								if (now - qTime) <= 10 then table.insert(qList, tostring(qId)) end
-							end
-							if #qList > 0 then pinQuestStr = table.concat(qList, ',') end
+						local linkCoords = (info.coords or coords) .. (mapList ~= '' and (' | maps='..mapList) or '')
+						self:_RecordQuestPinLink(key, info.pinType, info.name, pinQuestStr, linkCoords, baseWasEmpty)
+					end
+				else
+					-- B-consolidated: key persists, but the set of maps may have shifted.
+					-- Detect per-map disappearances/appearances of the same pinKey.
+					local prev = before[key]
+					local mapsRemoved = mapsMinus(prev.maps, info.maps)
+					local mapsAdded   = mapsMinus(info.maps, prev.maps)
+					if #mapsRemoved > 0 then
+						local rList = table.concat(mapsRemoved, ',')
+						local idxKey = strformat('%s|disappeared|%s|%s', key, rList, trigger)
+						if not db.questPinEventIndex[idxKey] then
+							db.questPinEventIndex[idxKey] = true
+							table.insert(db.questPinEvents, { questId=info.questId, pinType=info.pinType, event='disappeared',
+								trigger=trigger, triggerDetail=triggerDetail, coords=info.coords or coords,
+								name=info.name, atlas=info.atlas, time=now, maps=rList })
+							count = count + 1
+							local msg = strformat('QUESTPIN: disappeared questId=%s type=%s | trigger=%s %s | coords=%s | maps_removed=%s',
+								tostring(info.questId), tostring(info.pinType), trigger, tostring(triggerDetail), info.coords or coords, rList)
+							print(msg)
+							self:_AddTrackingMessage(msg)
+							local linkCoords = (info.coords or coords) .. ' | maps_removed=' .. rList
+							self:_RecordQuestPinLink(key, info.pinType, info.name,
+								strformat('%s|disappeared', pinQuestStr), linkCoords, baseWasEmpty)
 						end
-						self:_RecordQuestPinLink(key, info.pinType, info.name, pinQuestStr, info.coords or coords, baseWasEmpty)
+					end
+					if #mapsAdded > 0 then
+						local aList = table.concat(mapsAdded, ',')
+						local idxKey = strformat('%s|appeared|%s|%s', key, aList, trigger)
+						if not db.questPinEventIndex[idxKey] then
+							db.questPinEventIndex[idxKey] = true
+							table.insert(db.questPinEvents, { questId=info.questId, pinType=info.pinType, event='appeared',
+								trigger=trigger, triggerDetail=triggerDetail, coords=info.coords or coords,
+								name=info.name, atlas=info.atlas, time=now, maps=aList })
+							count = count + 1
+							local msg = strformat('QUESTPIN: appeared questId=%s type=%s | trigger=%s %s | coords=%s | maps_added=%s',
+								tostring(info.questId), tostring(info.pinType), trigger, tostring(triggerDetail), info.coords or coords, aList)
+							print(msg)
+							self:_AddTrackingMessage(msg)
+							local linkCoords = (info.coords or coords) .. ' | maps_added=' .. aList
+							self:_RecordQuestPinLink(key, info.pinType, info.name, pinQuestStr, linkCoords, baseWasEmpty)
+						end
+					end
+					-- pinType-Transition: same key, different pinType.
+					if prev.pinType ~= info.pinType then
+						local idxKey = strformat('%s|transition|%s>%s|%s', key, tostring(prev.pinType), tostring(info.pinType), trigger)
+						if not db.questPinEventIndex[idxKey] then
+							db.questPinEventIndex[idxKey] = true
+							table.insert(db.questPinEvents, { questId=info.questId, pinType=info.pinType, prevPinType=prev.pinType,
+								event='transitioned', trigger=trigger, triggerDetail=triggerDetail,
+								coords=info.coords or coords, name=info.name, atlas=info.atlas, time=now })
+							count = count + 1
+							local msg = strformat('QUESTPIN: transitioned questId=%s type=%s->%s | trigger=%s %s | coords=%s',
+								tostring(info.questId), tostring(prev.pinType), tostring(info.pinType),
+								trigger, tostring(triggerDetail), info.coords or coords)
+							print(msg)
+							self:_AddTrackingMessage(msg)
+							-- Tag uses '|swap:' instead of '|transition:' because '|t' is the
+							-- WoW chat texture-token marker — the renderer would swallow text
+							-- up to the next '|t'. '|s' is not reserved, displays as plain.
+							self:_RecordQuestPinLink(key, info.pinType, info.name,
+								strformat('%s|swap:%s->%s', pinQuestStr, tostring(prev.pinType), tostring(info.pinType)),
+								info.coords or coords, baseWasEmpty)
+						end
 					end
 				end
 			end
+			if count > 0 then self:_TrimQuestPinEvents() end
 			return count
 		end,
 
@@ -13481,8 +14402,13 @@ print("end:", strgsub(controlTable.something, "|", "*"))
 
 		-- Writes a QUEST_PIN_LINK entry if not already known.
 		_RecordQuestPinLink = function(self, pinKey, pinType, pinName, questStr, coords, baseWasEmpty)
-			-- Skip appeared pins with quests=none only when snapshot was empty (first map view)
-			if questStr == 'none' and baseWasEmpty and not strfind(tostring(pinKey), 'disappeared', 1, true) then return end
+			-- Phase 4: Suppress *all* appeared links when the baseline was empty (first
+			-- view of a map / login bootstrap). Disappeared events are still recorded
+			-- because they are kept-alive evidence of a real removal.
+			-- Note: previous implementation tested pinKey for "disappeared", but the
+			-- marker actually lives in questStr — that latent bug is fixed here.
+			local isDisappear = strfind(tostring(questStr), 'disappeared', 1, true)
+			if baseWasEmpty and not isDisappear then return end
 			local source = strformat('quests=%s | coords=%s', questStr, tostring(coords))
 			if self:_IsNewQuestPinLink(pinKey, source) then
 				local msg = strformat('QUEST_PIN_LINK: pin=%s type=%s name=%s | %s',
@@ -13562,7 +14488,9 @@ print("end:", strgsub(controlTable.something, "|", "*"))
 			end
 		end,
 
-		_VignetteCompareAndLog = function(self, before, after, label) end,
+		-- Phase 7: _VignetteCompareAndLog stub removed. All seven call-sites are gone:
+		-- replaced inline in VIGNETTES_UPDATED, or deleted alongside their spurious
+		-- _persistentVigSnapshot side-effect updates.
 		-- >>>VIGNETTE_DEBUG_END
 
 		-- >>>VIGNETTE_DEBUG_BEGIN
