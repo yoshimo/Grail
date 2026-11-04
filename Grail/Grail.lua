@@ -1081,7 +1081,7 @@ experimental = false,	-- currently this implementation does not reduce memory si
 		currentlyVerifying = false,
 		currentMortalIssues = {},
 		currentQuestIndex = nil,
-		debug = false,
+		debug = true,
 		defaultUnfoundLootingName = "No name gotten",
 		delayBagUpdate = 0.5,
 		delayedEvents = {},
@@ -1446,13 +1446,13 @@ experimental = false,	-- currently this implementation does not reduce memory si
 					-- Now we set up some capabilities flags
 					self.capabilities = {}
 					self.capabilities.usesFriendshipReputation = self.existsMainline
-					self.capabilities.usesAchievements = not self.existsClassic or self.existsClassicWrathOfTheLichKing or self.existsClassicCataclysm or self.existsClassicPandaria
+					self.capabilities.usesAchievements = not (self.existsClassic or self.existsForever) or self.existsClassicWrathOfTheLichKing or self.existsClassicCataclysm or self.existsClassicPandaria
 					self.capabilities.usesGarrisons = self.existsMainline
 					self.capabilities.usesArtifacts = false --self.existsMainline
-					self.capabilities.usesCampaignInfo = self.existsMainline
+					self.capabilities.usesCampaignInfo = (self.existsMainline) and (not self.existsForever)
 					self.capabilities.usesCalendar = self.existsMainline
-					self.capabilities.usesAzerothAsCosmicMap = self.existsClassicEra
-					self.capabilities.usesQuestHyperlink = self.existsMainline or self.existsClassicWrathOfTheLichKing or self.existsClassicCataclysm or self.existsClassicPandaria
+					self.capabilities.usesAzerothAsCosmicMap = self.existsClassicEra or self.existsForever
+					self.capabilities.usesQuestHyperlink = self.existsMainline or self.existsClassicWrathOfTheLichKing or self.existsClassicCataclysm or self.existsClassicPandaria or self.existsForever
 					self.capabilities.usesFollowers = self.existsMainline
 					self.capabilities.usesWorldEvents = self.existsMainline
 					self.capabilities.usesWorldQuests = self.existsMainline
@@ -4729,6 +4729,7 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 		existsClassic = (WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and WOW_PROJECT_ID ~= WOW_PROJECT_CLASSIC),	-- _classic_	"Cataclysm Classic"
 		existsMainline = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE),	-- _retail_	"World of Warcraft"
 		existsMidnight = (LE_EXPANSION_LEVEL_CURRENT == LE_EXPANSION_MIDNIGHT),
+		existsForever = (WOW_PROJECT_ID == WOW_PROJECT_CAMELOT),
 		factionMapping = { ['A'] = 'Alliance', ['H'] = 'Horde', },
 		followerMapping = {},
 		forceLocalizedQuestNameLoad = true,
@@ -5915,7 +5916,7 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 		timeSinceLastUpdate = 0,
 		timings = {},	-- a table of debug timings whose keys are areas of interest, and values are elapsed times in milliseconds
 		tooltip = nil,
-		tracking = false,
+		tracking = true,
 		trackingStarted = false,
 		unnamedZones = {},
 		useAncestor = true,
@@ -6066,12 +6067,12 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 			end
 			return retval
 		end,
-
+print("existsForever", self and Grail.existsForever);
 		_customAchievementNames = {
-									[13997] = C_CampaignInfo and C_CampaignInfo.GetCampaignInfo(113).name or "",	-- Venthyr Campaign
-									[14234] = C_CampaignInfo and C_CampaignInfo.GetCampaignInfo(119).name or "",	-- Kyrian Campaign
-									[14279] = C_CampaignInfo and C_CampaignInfo.GetCampaignInfo(115).name or "",	-- The Art of War
-									[14282] = C_CampaignInfo and C_CampaignInfo.GetCampaignInfo(117).name or "",	-- Night Fae Campaign
+									[13997] = C_CampaignInfo and C_CampaignInfo.GetCampaignInfo(113) and C_CampaignInfo.GetCampaignInfo(113).name or "",	-- Venthyr Campaign
+									[14234] = C_CampaignInfo and C_CampaignInfo.GetCampaignInfo(119) and C_CampaignInfo.GetCampaignInfo(119).name or "",	-- Kyrian Campaign
+									[14279] = C_CampaignInfo and C_CampaignInfo.GetCampaignInfo(115) and C_CampaignInfo.GetCampaignInfo(115).name or "",	-- The Art of War
+									[14282] = C_CampaignInfo and C_CampaignInfo.GetCampaignInfo(117) and C_CampaignInfo.GetCampaignInfo(117).name or "",	-- Night Fae Campaign
 									},
 		-- The assumption is the value of each entry in the table would logically be considered a valid P:
 		_customAchievementPrerequisites = {
