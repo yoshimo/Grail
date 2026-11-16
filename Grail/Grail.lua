@@ -2410,6 +2410,7 @@ securecallfunction(_BogusTestForTaint)
 							[115] = true, -- Dragonblight, WotLK
 							[116] = true, -- Grizzly Hills, WotLK
 							[117] = true, -- Howling Fjord, WotLK
+							[118] = true, -- Icecrown Citadel (DK intro), WotLK
 							[119] = true, -- Sholazar Basin, WotLK
 							[121] = true, -- Zul'Drak, WotLK
 							[170] = true, -- Hrothgar's Landing, WotLK
@@ -2561,6 +2562,7 @@ securecallfunction(_BogusTestForTaint)
 							[1543] = true, -- The Maw 9.0 , during 57690, rescuing prince renathal
 							[1550] = true, -- Thorgast, The Maw,   quest 57693
 							[1565] = true, -- Ardenweald 9.0
+							[1602] = true, -- Icecrown Citadel (DK intro)
 							[1648] = true, -- The Maw (intro version) 9.0
 							[1666] = true, -- Necrotic Wake 9.0 , (dungeon)
 							[1670] = true, -- Oribos 9.0 , TODO: so far no chests and rares
@@ -2587,6 +2589,7 @@ securecallfunction(_BogusTestForTaint)
 							[1630] = true, -- Thorgast 9.0 ?2? Kaltherzinterstitia Ebene 6
 							[1961] = true, -- Korthia 9.1
 							[1970] = true, -- Zereth Mortis
+							[2016] = true, -- Tazavesh, the Veiled Market
 							-- Dragon Flight
 							[940]  = true, -- The Vindikaar . Oberdeck(quest:77408)
 							[2109] = true, -- Forbidden Reach: Creche (Evoker)
