@@ -5272,6 +5272,10 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 					Grail:_UpdateQuestDatabase(questId, questTitle, npcId, isDaily, 'A', nil, kCode, lCode)
 				end
 			end
+			-- Compare the quest type flags with what the Blizzard API reports, for players who collect data.
+			if payload.questId and (Grail.GDE.tracking or Grail.GDE.debug) then
+				Grail:_LearnKCodesForQuest(payload.questId)
+			end
 			Grail:_AcceptQuestProcessingUpdateGroupCounts(payload.questId)
 			Grail:_AcceptQuestProcessingCompleteOnAccept(payload.questId)
 			Grail:_UpdateQuestResetTime()
@@ -11404,6 +11408,9 @@ end
 				end
 				self:_UpdateQuestDatabase(questId, 'No Title Stored', npcId, false, 'T', version)
 				self:_RemoveWorldQuest(questId)
+				if self.GDE.tracking or self.GDE.debug then
+					self:_LearnKCodesForQuest(questId)
+				end
 				self:_PostNotification("Complete", questId)
 			end
 
