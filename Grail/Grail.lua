@@ -9333,10 +9333,14 @@ end
 --					local currentQuestId = tonumber(codeString)
 --					if nil == currentQuestId then currentQuestId = tonumber(strsub(codeString, 2)) end
 					local currentQuestId = numeric
+					-- A code that does not resolve to a quest would otherwise be used as a nil table index below.
+					if nil == currentQuestId then
+						print("*** NIL from ", codeString, questId)
+						return false, { Grail.bitMaskInvalidated }
+					end
 
 					local t = Grail.questStatusCache.Q[currentQuestId] or {}
 					if not tContains(t, questId) then tinsert(t, questId) end
-					if nil == currentQuestId then print("*** NIL from ", codeString, questId) end
 					Grail.questStatusCache.Q[currentQuestId] = t
 					local subCode = Grail:StatusCode(currentQuestId)
 					--	SMH 2014-02-09
