@@ -9816,8 +9816,18 @@ end
 			self:_AddTrackingMessage("Coordinates earned: " .. Grail:Coordinates())
 		end,
 
+		-- Returns " (name)" for a major faction so tracking messages are readable without
+		-- looking up the id, or "" when the API or the faction is unavailable.  The name is
+		-- appended so the existing message layout stays intact for anything that parses it.
+		_MajorFactionNameSuffix = function(self, factionId)
+			if not (C_MajorFactions and C_MajorFactions.GetMajorFactionData) then return "" end
+			local data = C_MajorFactions.GetMajorFactionData(tonumber(factionId) or factionId)
+			if data and data.name then return " (" .. data.name .. ")" end
+			return ""
+		end,
+
 		_HandleEventMajorFactionUnlocked = function(self, factionId)
-			local message = "Major faction unlocked: " .. factionId
+			local message = "Major faction unlocked: " .. factionId .. self:_MajorFactionNameSuffix(factionId)
 			if self.GDE.debug then
 				print(message)
 			end
@@ -9826,7 +9836,7 @@ end
 		end,
 
 		_HandleEventMajorFactionRenownLevelChanged = function(self, factionId, newRenownLevel, oldRenownLevel)
-			local message = "Major faction: " .. factionId .. " renown changed from " .. oldRenownLevel .. " to " .. newRenownLevel
+			local message = "Major faction: " .. factionId .. " renown changed from " .. oldRenownLevel .. " to " .. newRenownLevel .. self:_MajorFactionNameSuffix(factionId)
 			if self.GDE.debug then
 				print(message)
 			end
