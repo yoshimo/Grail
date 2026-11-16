@@ -1673,7 +1673,7 @@ if nil == Grail or Grail.versionNumber < Grail_File_Version then
 		Grail.capabilities.usesCampaignInfo = Grail.existsMainline
 		Grail.capabilities.usesCalendar = Grail.existsMainline
 		Grail.capabilities.usesAzerothAsCosmicMap = Grail.existsClassicEra or Grail.existsForever
-		Grail.capabilities.usesQuestHyperlink = Grail.existsMainline or Grail.existsClassicWrathOfTheLichKing or Grail.existsClassicCataclysm or Grail.existsClassicPandaria
+		Grail.capabilities.usesQuestHyperlink = Grail.existsMainline or Grail.existsClassicWrathOfTheLichKing or Grail.existsClassicCataclysm or Grail.existsClassicPandaria or Grail.existsForever
 		Grail.capabilities.usesFollowers = Grail.existsMainline
 		Grail.capabilities.usesWorldEvents = Grail.existsMainline
 		Grail.capabilities.usesWorldQuests = Grail.existsMainline
