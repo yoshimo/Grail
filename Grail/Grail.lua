@@ -3443,6 +3443,7 @@ frame:RegisterEvent("GOSSIP_ENTER_CODE")	-- gossipIndex
 --					local criterionName = GetAchievementCriteriaInfoByID(achievementId, criterionId)
 --					self:_AddTrackingMessage("Criterion earned: "..criterionName.." ("..criterionId..") for achievement "..achievementName.." ("..achievementId..")")
 					self:_AddTrackingMessage("Criterion earned: "..criterionName.." for achievement "..achievementName.." ("..achievementId..")")
+					self:_AddTrackingMessage("Coordinates earned: " .. tostring(self:Coordinates()))
 				end
 			end,
 
