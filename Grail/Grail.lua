@@ -3519,6 +3519,11 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 			['ITEM_TEXT_READY'] = function(self, frame, ...)
 				local targetName, npcId, coordinates = self:TargetInformation()
 				local questToComplete = self._ItemTextBeginList[npcId]
+				-- Record every readable object, not only the ones already tied to a quest, so unknown
+				-- books and plaques can be matched to quests later.
+				if self.GDE.debug or self.GDE.tracking then
+					self:_AddTrackingMessage(strformat("ITEM_TEXT_READY | Target: %s (%d) | Coords: %s", tostring(targetName), tonumber(npcId) or -1, tostring(coordinates)))
+				end
 				if nil ~= questToComplete then
 					self:_MarkQuestComplete(questToComplete, true)
 					local message = strformat("ITEM_TEXT_READY completes %d | Target: %s (%d) | Coords: %s", questToComplete, tostring(targetName), tonumber(npcId) or -1, tostring(coordinates))
