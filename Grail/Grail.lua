@@ -5854,6 +5854,15 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 			return retval
 		end,
 
+		-- Same as _LearnKCodesForQuest, but looks at each quest only once per session.  Used for
+		-- quests that are merely seen on the map, where the same pins come up again on every map change.
+		_LearnKCodesForQuestOnce = function(self, questId)
+			self.kCodesCheckedThisSession = self.kCodesCheckedThisSession or {}
+			if self.kCodesCheckedThisSession[questId] then return end
+			self.kCodesCheckedThisSession[questId] = true
+			self:_LearnKCodesForQuest(questId)
+		end,
+
 		_LearnKCodesForQuest = function(self, questId)
 			local code = self:CodeType(questId)
 			-- Masking out things that we get from this API use so the API gives us truth.
@@ -9929,6 +9938,14 @@ end
 							end
 						end
 					end
+				end
+			end
+
+			-- For players who collect data: compare the type flags of the quests seen on this map
+			-- with what the Blizzard API reports.
+			if self.GDE.tracking or self.GDE.debug then
+				for questID in pairs(seen) do
+					self:_LearnKCodesForQuestOnce(questID)
 				end
 			end
 
