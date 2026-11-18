@@ -7011,15 +7011,19 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 			end
 		end,
 
-		-- Removes entries from GDE.observedQuestLocations whose quest giver (A: code) already
+		-- Removes entries from GDE.observedQuestLocations and GDE.observedQuestOffers whose quest giver (A: code) already
 		-- has a matching location in the database.  "Matching" means the same mapID and a
 		-- euclidean distance within locationCloseness (stored in percent-coordinate space, same
 		-- as the NPC location tables).  The observed pin coordinates arrive as normalized (0-1)
 		-- values, so they are multiplied by 100 before comparison.
-		_CleanDatabaseObservedQuestLocations = function(self)
-			if nil == self.GDE.observedQuestLocations then return end
+		_CleanDatabaseObservedQuestLocations = function(self, observed)
+			if nil == observed then
+				self:_CleanDatabaseObservedQuestLocations(self.GDE.observedQuestLocations or {})
+				self:_CleanDatabaseObservedQuestLocations(self.GDE.observedQuestOffers or {})
+				return
+			end
 			local toRemove = {}
-			for questId, obs in pairs(self.GDE.observedQuestLocations) do
+			for questId, obs in pairs(observed) do
 				-- Convert normalized pin coordinates to percent-coordinate space for comparison
 				local obsStructure = { mapArea = obs.mapID, x = obs.x * 100, y = obs.y * 100 }
 				local codeString = self.questCodes[questId]
@@ -7054,7 +7058,7 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 				end
 			end
 			for questId in pairs(toRemove) do
-				self.GDE.observedQuestLocations[questId] = nil
+				observed[questId] = nil
 			end
 		end,
 
@@ -9908,12 +9912,71 @@ end
 			end
 		end,
 
+		-- Returns the quest offers Blizzard shows on a map, keyed by quest id:
+		-- { kind = "offer" | "campaign_offer" | "task", x = ..., y = ..., name = ..., hub = areaPoiID or nil }.
+		-- These are the functions Blizzard builds its quest offer and quest hub pins from, so no
+		-- map pin frame is touched.  Each part is skipped when its API does not exist.
+		_MapQuestOffers = function(self, uiMapID)
+			local offers = {}
+			if not uiMapID then return offers end
+			local function add(questID, kind, x, y, name)
+				questID = tonumber(questID)
+				if questID and questID > 0 and nil == offers[questID] then
+					offers[questID] = { kind = kind, x = x, y = y, name = name }
+				end
+			end
+			if C_QuestLine and C_QuestLine.GetAvailableQuestLines then
+				local lines = C_QuestLine.GetAvailableQuestLines(uiMapID)
+				if lines then
+					for _, info in ipairs(lines) do
+						add(info.questID, info.isCampaign and "campaign_offer" or "offer", info.x, info.y, info.questName)
+					end
+				end
+				if C_QuestLine.GetForceVisibleQuests and C_QuestLine.GetQuestLineInfo then
+					local forced = C_QuestLine.GetForceVisibleQuests(uiMapID)
+					if forced then
+						for _, questID in ipairs(forced) do
+							local info = C_QuestLine.GetQuestLineInfo(questID, uiMapID)
+							if info then
+								add(info.questID, info.isCampaign and "campaign_offer" or "offer", info.x, info.y, info.questName)
+							end
+						end
+					end
+				end
+			end
+			if C_TaskQuest and C_TaskQuest.GetQuestsOnMap then
+				local tasks = C_TaskQuest.GetQuestsOnMap(uiMapID)
+				if tasks then
+					for _, task in ipairs(tasks) do
+						add(task.questID or task.questId, "task", task.x, task.y, nil)
+					end
+				end
+			end
+			-- A quest hub has no quest id of its own; Blizzard links the offers to their hub like this.
+			if next(offers) and C_AreaPoiInfo and C_AreaPoiInfo.GetQuestHubsForMap and C_QuestHub and C_QuestHub.IsQuestCurrentlyRelatedToHub then
+				local hubs = C_AreaPoiInfo.GetQuestHubsForMap(uiMapID)
+				if hubs and #hubs > 0 then
+					for questID, offer in pairs(offers) do
+						for _, hubID in ipairs(hubs) do
+							if C_QuestHub.IsQuestCurrentlyRelatedToHub(questID, hubID) then
+								offer.hub = hubID
+								break
+							end
+						end
+					end
+				end
+			end
+			return offers
+		end,
+
 		---
-		--	Scans C_QuestLog.GetQuestsOnMap() for the given map and records each quest pin
-		--	position into GDE.observedQuestLocations[questID] = {mapID, x, y}.
-		--	This builds a passive dataset of "where each quest giver stands" that can be
-		--	used to verify or fill Grail NPC location data.  Only the most-recent
-		--	observation per quest is kept; later sightings overwrite earlier ones.
+		--	Scans the given map and records positions into the saved variables:
+		--	GDE.observedQuestLocations[questID] = {mapID, x, y} for the quest pins from
+		--	C_QuestLog.GetQuestsOnMap() (Blizzard draws these for quests in the log, e.g. at their
+		--	objective or turn-in), and GDE.observedQuestOffers[questID] = {mapID, x, y, hub} for the
+		--	quests offered on the map, i.e. where a quest can be picked up (hub is the quest hub's
+		--	areaPoiID when the offer belongs to one).  Only the most-recent observation per quest is
+		--	kept; later sightings overwrite earlier ones.
 		_ScanMapQuestPins = function(self, uiMapID)
 			if not uiMapID then return end
 			if nil == self.GDE.observedQuestLocations then
@@ -9934,20 +9997,18 @@ end
 				end
 			end
 
-			-- Quest hub POIs: may expose quests not yet shown as individual pins.
-			if C_AreaPoiInfo and C_AreaPoiInfo.GetQuestHubsForMap and C_AreaPoiInfo.GetAreaPOIInfo then
-				local hubs = C_AreaPoiInfo.GetQuestHubsForMap(uiMapID)
-				if hubs then
-					for _, areaPoiID in ipairs(hubs) do
-						local info = C_AreaPoiInfo.GetAreaPOIInfo(uiMapID, areaPoiID)
-						if info and info.position and info.questID and info.questID > 0 then
-							local questID = info.questID
-							if not seen[questID] then
-								seen[questID] = true
-								locs[questID] = {mapID = uiMapID, x = info.position.x, y = info.position.y}
-							end
-						end
-					end
+			-- Quest offers, i.e. where a quest can be picked up.  They are kept apart from the pins
+			-- above.  World quests and bonus objectives ("task") are left out, as nobody hands them out.
+			-- A quest hub has no quest id of its own (the upstream code looked for info.questID, which
+			-- the API does not provide), so hub quests come from the offers linked to the hub.
+			if nil == self.GDE.observedQuestOffers then
+				self.GDE.observedQuestOffers = {}
+			end
+			local offerLocs = self.GDE.observedQuestOffers
+			for questID, offer in pairs(self:_MapQuestOffers(uiMapID)) do
+				if "task" ~= offer.kind and offer.x and offer.y then
+					seen[questID] = true
+					offerLocs[questID] = {mapID = uiMapID, x = offer.x, y = offer.y, hub = offer.hub}
 				end
 			end
 
