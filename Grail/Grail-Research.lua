@@ -15,6 +15,7 @@
 --		VIGNETTE_QUEST_LINK		a vignette that vanished right before such a quest completed
 --		VIGNETTE_REP_LINK		a vignette that vanished together with a reputation change
 --		QUESTPIN				quest offers that appear or disappear on the map after accepting or turning in a quest
+--								(trigger=reset:daily/... or reset:weekly/... when a quest reset happened in between)
 --
 --	UTF-8 file
 --
@@ -39,6 +40,7 @@ local R = {
 	diffDelays = { 1, 3, 7, 15 },	-- seconds after a quest action at which the map offers are compared
 	maxLoginLines = 300,		-- cap for the lines written when many quests completed while logged out
 	maxAtOnce = 50,				-- more newly completed quests than this in one comparison is late quest data, not gameplay
+	resetWindow = 60,			-- seconds after a quest reset in which map offer changes are credited to the reset
 	}
 Grail.research = R
 
@@ -587,13 +589,21 @@ function R.OnQuestAction(action, questId)
 	local baseline = R.baseline
 	R.baseline = nil
 	if nil == baseline or baseline.mapId ~= playerMap() then return end
-	local trigger = strformat("%s:%d", action, questId)
+	local actionTrigger = strformat("%s:%d", action, questId)
 	local reported = {}
 	for _, delay in ipairs(R.diffDelays) do
 		C_Timer.After(delay, function()
 			if not enabled() then return end
 			local current, mapId, source = R.OffersAroundPlayer()
 			if mapId ~= baseline.mapId then return end
+			--	A quest reset between the baseline and now changes offers by itself (new
+			--	dailies, rotated world quests), so those changes are credited to the reset.
+			--	The baseline is at most 30 s older than the action, hence the window.
+			local trigger = actionTrigger
+			local resetKind = Grail._NearQuestReset and Grail:_NearQuestReset(R.resetWindow) or nil
+			if resetKind then
+				trigger = strformat("reset:%s/%s", resetKind, actionTrigger)
+			end
 			R.ReportOfferChanges(baseline.offers, current, questId, trigger, delay, source, reported)
 		end)
 	end
