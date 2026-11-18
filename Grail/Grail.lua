@@ -9973,9 +9973,10 @@ end
 		--	Scans the given map and records positions into the saved variables:
 		--	GDE.observedQuestLocations[questID] = {mapID, x, y} for the quest pins from
 		--	C_QuestLog.GetQuestsOnMap() (Blizzard draws these for quests in the log, e.g. at their
-		--	objective or turn-in), and GDE.observedQuestOffers[questID] = {mapID, x, y, hub} for the
+		--	objective or turn-in), and GDE.observedQuestOffers[questID] = {mapID, x, y, hub, kind} for the
 		--	quests offered on the map, i.e. where a quest can be picked up (hub is the quest hub's
-		--	areaPoiID when the offer belongs to one).  Only the most-recent observation per quest is
+		--	areaPoiID when the offer belongs to one; kind is "offer", "campaign_offer" or "task" for world
+		--	quests and bonus objectives).  Only the most-recent observation per quest is
 		--	kept; later sightings overwrite earlier ones.
 		_ScanMapQuestPins = function(self, uiMapID)
 			if not uiMapID then return end
@@ -9997,18 +9998,20 @@ end
 				end
 			end
 
-			-- Quest offers, i.e. where a quest can be picked up.  They are kept apart from the pins
-			-- above.  World quests and bonus objectives ("task") are left out, as nobody hands them out.
-			-- A quest hub has no quest id of its own (the upstream code looked for info.questID, which
-			-- the API does not provide), so hub quests come from the offers linked to the hub.
+			-- Quest offers, i.e. where a quest can be picked up, kept apart from the pins above.
+			-- World quests and bonus objectives are kept as well (kind "task"), as nobody hands
+			-- them out, their location is where Grail places its stand-in quest giver, so the clean-up
+			-- at login can drop them once that giver is known on the same map.  A quest hub has no quest
+			-- id of its own (the upstream code looked for info.questID, which the API does not provide),
+			-- so hub quests come from the offers linked to the hub.
 			if nil == self.GDE.observedQuestOffers then
 				self.GDE.observedQuestOffers = {}
 			end
 			local offerLocs = self.GDE.observedQuestOffers
 			for questID, offer in pairs(self:_MapQuestOffers(uiMapID)) do
-				if "task" ~= offer.kind and offer.x and offer.y then
-					seen[questID] = true
-					offerLocs[questID] = {mapID = uiMapID, x = offer.x, y = offer.y, hub = offer.hub}
+				seen[questID] = true
+				if offer.x and offer.y then
+					offerLocs[questID] = {mapID = uiMapID, x = offer.x, y = offer.y, hub = offer.hub, kind = offer.kind}
 				end
 			end
 
