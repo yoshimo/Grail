@@ -5269,7 +5269,17 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 					end
 					local kCode = (kCodeValue > 0) and strformat("K%d", kCodeValue) or nil
 					local lCode = "L" .. Grail:StringFromQuestLevels(difficultyLevel, level, 0)
-					Grail:_UpdateQuestDatabase(questId, questTitle, npcId, isDaily, 'A', nil, kCode, lCode)
+					-- At a quest reset the game puts quests into the log by itself, so the targeted NPC is
+					-- not learned as their giver.  Title, type and level are still learned.
+					local giverCode = 'A'
+					local resetKind = Grail:_NearQuestReset()
+					if resetKind then
+						giverCode = nil
+						if Grail.GDE.tracking or Grail.GDE.debug then
+							Grail:_AddTrackingMessage(strformat("QUEST_RESET (%s): giver not learned for quest %d (npc %s)", resetKind, questId, tostring(npcId)))
+						end
+					end
+					Grail:_UpdateQuestDatabase(questId, questTitle, npcId, isDaily, giverCode, nil, kCode, lCode)
 				end
 			end
 			-- Compare the quest type flags with what the Blizzard API reports, for players who collect data.
@@ -14996,6 +15006,26 @@ if factionId == nil then print("Rep nil issue:", reputationName, reputationId, r
 					end
 				end
 			end
+		end,
+
+		-- Returns "weekly" or "daily" when a quest reset happened within the last secondsAfter
+		-- seconds (default 60) or happens within the next secondsBefore seconds (default 5), else nil.
+		-- At that moment the game itself adds and removes quests (emissaries, dailies), which would
+		-- otherwise be credited to whatever NPC is targeted or to an unrelated quest action.
+		_NearQuestReset = function(self, secondsAfter, secondsBefore)
+			secondsAfter = secondsAfter or 60
+			secondsBefore = secondsBefore or 5
+			local function near(untilNext, period)
+				if nil == untilNext or untilNext <= 0 or untilNext > period then return false end
+				return untilNext <= secondsBefore or (period - untilNext) <= secondsAfter
+			end
+			if C_DateAndTime and C_DateAndTime.GetSecondsUntilWeeklyReset and near(C_DateAndTime.GetSecondsUntilWeeklyReset(), 604800) then
+				return "weekly"
+			end
+			if GetQuestResetTime and near(GetQuestResetTime(), 86400) then
+				return "daily"
+			end
+			return nil
 		end,
 
 		--	Updates the time until quests reset based on the GetQuestResetTime() API.  A side-effect is that if the reset time is past QueryQuestsCompleted() will be called.
