@@ -480,43 +480,22 @@ function R.OffersFromPins(mapId)
 end
 
 --	Returns the offers of a map keyed by quest id, and where they came from ("api" or "pins").
+--	The API part is Grail:_MapQuestOffers, which the map scan in the main file uses as well.
 function R.MapOffers(mapId)
 	local offers, source = {}, "api"
 	if nil == mapId then return offers, source end
-	if C_QuestLine and C_QuestLine.GetAvailableQuestLines then
-		local lines = C_QuestLine.GetAvailableQuestLines(mapId)
-		if lines then
-			for _, info in ipairs(lines) do
-				addOffer(offers, info.questID, info.isCampaign and "campaign_offer" or "offer", info.x, info.y, info.questName)
-			end
-		end
-		if C_QuestLine.GetForceVisibleQuests and C_QuestLine.GetQuestLineInfo then
-			local forced = C_QuestLine.GetForceVisibleQuests(mapId)
-			if forced then
-				for _, questId in ipairs(forced) do
-					local info = C_QuestLine.GetQuestLineInfo(questId, mapId)
-					if info then
-						addOffer(offers, info.questID, info.isCampaign and "campaign_offer" or "offer", info.x, info.y, info.questName)
-					end
-				end
-			end
-		end
+	if Grail._MapQuestOffers then
+		offers = Grail:_MapQuestOffers(mapId)
 	end
-	if C_TaskQuest and C_TaskQuest.GetQuestsOnMap then
-		local tasks = C_TaskQuest.GetQuestsOnMap(mapId)
-		if tasks then
-			for _, task in ipairs(tasks) do
-				addOffer(offers, task.questID or task.questId, "task", task.x, task.y, nil)
-			end
-		end
+	if nil ~= next(offers) then
+		return offers, source
 	end
-	if nil == next(offers) then
-		local fromPins = R.OffersFromPins(mapId)
-		if nil ~= next(fromPins) then
-			offers, source = fromPins, "pins"
-		end
+	local fromPins = R.OffersFromPins(mapId)
+	if nil ~= next(fromPins) then
+		offers, source = fromPins, "pins"
 	end
-	if C_AreaPoiInfo and C_AreaPoiInfo.GetQuestHubsForMap and C_QuestHub and C_QuestHub.IsQuestCurrentlyRelatedToHub then
+	--	Offers read from the pins still need their quest hub.
+	if source == "pins" and C_AreaPoiInfo and C_AreaPoiInfo.GetQuestHubsForMap and C_QuestHub and C_QuestHub.IsQuestCurrentlyRelatedToHub then
 		local hubs = C_AreaPoiInfo.GetQuestHubsForMap(mapId)
 		if hubs and #hubs > 0 then
 			for questId, offer in pairs(offers) do
@@ -530,22 +509,6 @@ function R.MapOffers(mapId)
 		end
 	end
 	return offers, source
-end
-
---	Called after Grail has scanned the map that was opened: remembers where offers
---	were seen and lets Grail compare their type flags with the Blizzard API.
-function R.OnMapScanned(mapId)
-	if not enabled() or nil == mapId then return end
-	local offers = R.MapOffers(mapId)
-	local locations = Grail.GDE.observedQuestLocations
-	for questId, offer in pairs(offers) do
-		if nil ~= locations and nil == locations[questId] and nil ~= offer.x and nil ~= offer.y then
-			locations[questId] = { mapID = mapId, x = offer.x, y = offer.y }
-		end
-		if Grail._LearnKCodesForQuestOnce then
-			Grail:_LearnKCodesForQuestOnce(questId)
-		end
-	end
 end
 
 --	The offers of the map the player is on and of its parent, so an offer that is only
@@ -677,9 +640,7 @@ function R.InstallHooks()
 			hooksecurefunc(C_GossipInfo, "SelectOption", function(optionId) R.OnGossipSelected(false, optionId) end)
 		end
 	end
-	if Grail._ScanMapQuestPins then
-		hooksecurefunc(Grail, "_ScanMapQuestPins", function(_, mapId) R.OnMapScanned(mapId) end)
-	end
+	--	The map scan in the main file records offers and their type flags itself.
 end
 
 function R.Enable(atLogin)
