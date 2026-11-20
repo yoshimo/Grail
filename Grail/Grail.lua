@@ -2699,7 +2699,7 @@ securecallfunction(_BogusTestForTaint)
 							[2576] = true, -- Quel'thalas: Harandar: cave (deDE "Die Höhle"; micro map, parent 2413)
 							[2424] = true, -- Isle of Quel'danas - Isle of Quel'danas
 							[2444] = true, -- Quel'thalas: Voidstorm: Slayer's Rise (deDE Schlächteranhöhe; zone map, parent 2405)
-							[2537] = true, -- Isle of Quel'danas? - TODO: Yoshimo: check (internally named "unknown")
+							[2537] = true, -- Quel'thalas continent map (Midnight); it is in Grail.continents, the player's map is never a continent, so this entry has no effect
 							[2565] = true, -- Isle of Quel'danas, MN intro questchain (Liadrin id:236693) / quest 86834
 							[2437] = true, -- Quel'thalas: Zul'Aman (Midnight)
 							[2536] = true, -- Quel'thalas: Zul'Aman (Midnight): Atal'Aman
