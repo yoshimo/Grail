@@ -9978,6 +9978,14 @@ end
 			return offers
 		end,
 
+		-- World, cosmic and continent maps show quests with coarse coordinates only.  Grail's own
+		-- continent table is used instead of C_Map.GetMapInfo, whose cached results must not be
+		-- read from tainted execution.
+		_IsCoarseMap = function(self, mapID)
+			mapID = tonumber(mapID)
+			return nil ~= mapID and (946 == mapID or 947 == mapID or nil ~= self.continents[mapID])
+		end,
+
 		---
 		--	Scans the given map and records positions into the saved variables:
 		--	GDE.observedQuestLocations[questID] = {mapID, x, y} for the quest pins from
@@ -9986,7 +9994,9 @@ end
 		--	quests offered on the map, i.e. where a quest can be picked up (hub is the quest hub's
 		--	areaPoiID when the offer belongs to one; kind is "offer", "campaign_offer" or "task" for world
 		--	quests and bonus objectives).  Only the most-recent observation per quest is
-		--	kept; later sightings overwrite earlier ones.
+		--	kept; later sightings overwrite earlier ones.  World and continent maps show quests
+		--	with coarse coordinates only, so their sightings merely fill gaps and never replace
+		--	an observation from a zone, dungeon or micro map.
 		_ScanMapQuestPins = function(self, uiMapID)
 			if not uiMapID then return end
 			if nil == self.GDE.observedQuestLocations then
@@ -9994,6 +10004,11 @@ end
 			end
 			local locs = self.GDE.observedQuestLocations
 			local seen = {}
+			-- A sighting on a coarse map is written only where nothing better is known.
+			local coarse = self:_IsCoarseMap(uiMapID)
+			local function mayWrite(old)
+				return not coarse or nil == old or self:_IsCoarseMap(old.mapID)
+			end
 
 			-- Blizzard quest pins visible on this map.
 			local pins = C_QuestLog.GetQuestsOnMap(uiMapID)
@@ -10002,7 +10017,9 @@ end
 					local questID = tonumber(pin.questID)
 					if questID then
 						seen[questID] = true
-						locs[questID] = {mapID = uiMapID, x = pin.x, y = pin.y}
+						if mayWrite(locs[questID]) then
+							locs[questID] = {mapID = uiMapID, x = pin.x, y = pin.y}
+						end
 					end
 				end
 			end
@@ -10019,7 +10036,7 @@ end
 			local offerLocs = self.GDE.observedQuestOffers
 			for questID, offer in pairs(self:_MapQuestOffers(uiMapID)) do
 				seen[questID] = true
-				if offer.x and offer.y then
+				if offer.x and offer.y and mayWrite(offerLocs[questID]) then
 					offerLocs[questID] = {mapID = uiMapID, x = offer.x, y = offer.y, hub = offer.hub, kind = offer.kind}
 				end
 			end
