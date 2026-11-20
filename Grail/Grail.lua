@@ -2696,8 +2696,9 @@ securecallfunction(_BogusTestForTaint)
 							[2395] = true, -- Quel'thalas: Eversong Woods (Midnight)
 							[2405] = true, -- Quel'thalas: Voidstorm
 							[2413] = true, -- Quel'thalas: Harandar
+							[2576] = true, -- Quel'thalas: Harandar: cave (deDE "Die Höhle"; micro map, parent 2413)
 							[2424] = true, -- Isle of Quel'danas - Isle of Quel'danas
-							[2444] = true, -- Isle of Quel'danas - Slayer's Rise
+							[2444] = true, -- Quel'thalas: Voidstorm: Slayer's Rise (deDE Schlächteranhöhe; zone map, parent 2405)
 							[2537] = true, -- Isle of Quel'danas? - TODO: Yoshimo: check (internally named "unknown")
 							[2565] = true, -- Isle of Quel'danas, MN intro questchain (Liadrin id:236693) / quest 86834
 							[2437] = true, -- Quel'thalas: Zul'Aman (Midnight)
