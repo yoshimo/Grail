@@ -5802,7 +5802,11 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 							v.questId = v.questID
 						end
 						if nil ~= v.questId then
-							self:_LearnWorldQuest(v.questId, v.mapID, v.x, v.y, v.isDaily)
+							-- Since Midnight the task list also holds ordinary quests that a quest giver offers
+							-- (isQuestStart), hub quests for example.  They are no world quests, so nothing is learned here.
+							if not (v.isQuestStart and C_QuestLog.IsWorldQuest and not C_QuestLog.IsWorldQuest(v.questId)) then
+								self:_LearnWorldQuest(v.questId, v.mapID, v.x, v.y, v.isDaily)
+							end
 	--						self.availableWorldQuests[v.questId] = true
 							tinsert(self.invalidateControl[self.invalidateGroupCurrentWorldQuests], v.questId)
 							C_TaskQuest.GetQuestTimeLeftMinutes(v.questId)	-- attempting to prime the system, because first calls do not work
@@ -5943,7 +5947,10 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 			if tagId == 268 or tagId == 271 then return end	-- It turns out tagName is localized so tagId is the smarter comparison.
 			local professionRequirement = self._LearnedWorldQuestProfessionMapping[tagId]
 			local typeModifier = self._LearnedWorldQuestTypeMapping[tagId]
-			local typeValue = tagId and 262144 or (isDaily and 2 or 0)
+			-- Only real world quests get the world quest bit.  Since Midnight the task list also holds group,
+			-- dungeon, raid and important quests, which have a quest tag but are no world quests.
+			local isWorldQuest = tagId and (nil == C_QuestLog.IsWorldQuest or C_QuestLog.IsWorldQuest(questId))
+			local typeValue = isWorldQuest and 262144 or (isDaily and 2 or 0)
 
 			if nil ~= professionRequirement then
 				pCodeToAdd = pCodeToAdd .. '+P' .. professionRequirement .. '001'
