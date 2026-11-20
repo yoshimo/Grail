@@ -9978,6 +9978,48 @@ end
 			return offers
 		end,
 
+		-- The detailed maps that the quest hubs on the given map link to, as {linkedMapID = hubID}.
+		_LinkedHubMaps = function(self, uiMapID)
+			local linked = {}
+			if C_AreaPoiInfo and C_AreaPoiInfo.GetQuestHubsForMap and C_AreaPoiInfo.GetAreaPOIInfo then
+				for _, hubID in ipairs(C_AreaPoiInfo.GetQuestHubsForMap(uiMapID) or {}) do
+					local info = C_AreaPoiInfo.GetAreaPOIInfo(uiMapID, hubID)
+					local linkedMapID = info and info.linkedUiMapID
+					if linkedMapID and linkedMapID ~= uiMapID and not self:_IsCoarseMap(linkedMapID) then
+						linked[linkedMapID] = hubID
+					end
+				end
+			end
+			return linked
+		end,
+
+		-- Asks the game to load the quest lines of a map that is not shown.  QUESTLINE_UPDATE tells
+		-- when they are there (Blizzard's map does the same for the shown map), and the map is
+		-- scanned again then.  At most one request per map every 30 seconds.
+		_RequestQuestLinesForMap = function(self, uiMapID, hubID)
+			if not (C_QuestLine and C_QuestLine.RequestQuestLinesForMap) then return end
+			if C_EventUtils and C_EventUtils.IsEventValid and not C_EventUtils.IsEventValid("QUESTLINE_UPDATE") then return end
+			local now = GetTime()
+			self.questLineRequests = self.questLineRequests or {}
+			if now - (self.questLineRequests[uiMapID] or -60) < 30 then return end
+			self.questLineRequests[uiMapID] = now
+			self.questLinePendingMaps = self.questLinePendingMaps or {}
+			self.questLinePendingMaps[uiMapID] = hubID or true
+			if nil == self.questLineFrame then
+				self.questLineFrame = CreateFrame("Frame")
+				self.questLineFrame:RegisterEvent("QUESTLINE_UPDATE")
+				self.questLineFrame:SetScript("OnEvent", function(_, _, requestRequired)
+					if requestRequired then return end
+					local pending = self.questLinePendingMaps
+					self.questLinePendingMaps = {}
+					for mapID, hubID in pairs(pending) do
+						securecallfunction(function() self:_ScanMapQuestPins(mapID, hubID) end)
+					end
+				end)
+			end
+			C_QuestLine.RequestQuestLinesForMap(uiMapID)
+		end,
+
 		-- World, cosmic and continent maps show quests with coarse coordinates only.  Grail's own
 		-- continent table is used instead of C_Map.GetMapInfo, whose cached results must not be
 		-- read from tainted execution.
@@ -9997,7 +10039,8 @@ end
 		--	kept; later sightings overwrite earlier ones.  World and continent maps show quests
 		--	with coarse coordinates only, so their sightings merely fill gaps and never replace
 		--	an observation from a zone, dungeon or micro map.
-		_ScanMapQuestPins = function(self, uiMapID)
+		--	The maps that quest hubs link to are scanned as well (linkedHubID is that hub then).
+		_ScanMapQuestPins = function(self, uiMapID, linkedHubID)
 			if not uiMapID then return end
 			if nil == self.GDE.observedQuestLocations then
 				self.GDE.observedQuestLocations = {}
@@ -10037,7 +10080,11 @@ end
 			for questID, offer in pairs(self:_MapQuestOffers(uiMapID)) do
 				seen[questID] = true
 				if offer.x and offer.y and mayWrite(offerLocs[questID]) then
-					offerLocs[questID] = {mapID = uiMapID, x = offer.x, y = offer.y, hub = offer.hub, kind = offer.kind}
+					local hub = offer.hub
+					if nil == hub and "number" == type(linkedHubID) and C_QuestHub and C_QuestHub.IsQuestCurrentlyRelatedToHub and C_QuestHub.IsQuestCurrentlyRelatedToHub(questID, linkedHubID) then
+						hub = linkedHubID
+					end
+					offerLocs[questID] = {mapID = uiMapID, x = offer.x, y = offer.y, hub = hub, kind = offer.kind}
 				end
 			end
 
@@ -10046,6 +10093,17 @@ end
 			if self.GDE.tracking or self.GDE.debug then
 				for questID in pairs(seen) do
 					self:_LearnKCodesForQuestOnce(questID)
+				end
+			end
+
+			-- A quest hub can link to a more detailed map, like Silvermoon City (2393) for its hub on
+			-- the Eversong Woods map (2395).  Its quests are recorded there as well, as positions on
+			-- that map are far more precise.  World quests and hub quests of the task kind come at once,
+			-- offers along quest lines only after the game has loaded them for that map.
+			if not linkedHubID then
+				for linkedMapID, hubID in pairs(self:_LinkedHubMaps(uiMapID)) do
+					self:_ScanMapQuestPins(linkedMapID, hubID)
+					self:_RequestQuestLinesForMap(linkedMapID, hubID)
 				end
 			end
 
