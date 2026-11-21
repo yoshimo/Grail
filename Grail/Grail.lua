@@ -8850,7 +8850,8 @@ if self.GDE.debug then print("GARRISON_BUILDING_UPDATE ", buildingId) end
 					local index, value
 					for i = 1, reputationCount do
 						index, value = self:ReputationDecode(strsub(reputationCodes, i * 4 - 3, i * 4))
-						self:AddQuestToMapArea(questId, self.mapAreaBaseReputation + tonumber(index, 16), REPUTATION .. " - " .. self.reputationMapping[index])
+						-- The data can name a faction the reputation table does not know; its code stands in then.
+						self:AddQuestToMapArea(questId, self.mapAreaBaseReputation + tonumber(index, 16), REPUTATION .. " - " .. (self.reputationMapping[index] or index))
 					end
 				end
 
