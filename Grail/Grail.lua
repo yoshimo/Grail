@@ -9799,10 +9799,12 @@ end
 					else
 						isComplete = 0
 					end
-					isDaily = (Enum.QuestFrequency.Daily == info.frequency)
+					-- Classic clients count info.frequency from 1 (default 1, daily 2, weekly 3), while
+					-- Enum.QuestFrequency holds the retail values; the LE_ constants match the client.
+					isDaily = ((LE_QUEST_FREQUENCY_DAILY or Enum.QuestFrequency.Daily) == info.frequency)
 					startEvent = info.startEvent
 					displayQuestID = nil
-					isWeekly = (Enum.QuestFrequency.Weekly == info.frequency)
+					isWeekly = ((LE_QUEST_FREQUENCY_WEEKLY or Enum.QuestFrequency.Weekly) == info.frequency)
 					isTask = info.isTask
 					isBounty = info.isBounty
 					isStory = info.isStory
