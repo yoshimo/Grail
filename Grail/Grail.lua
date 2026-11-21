@@ -3294,6 +3294,7 @@ frame:RegisterEvent("GOSSIP_ENTER_CODE")	-- gossipIndex
 								securecallfunction(function() self:_ScanMapQuestPins(mapID) end)
 							end)
 						end)
+						self:_EnsureQuestLineFrame()
 					end
 
 					self.timings.AddonLoaded = 	debugprofilestop() - debugStartTime
@@ -9993,6 +9994,36 @@ end
 			return linked
 		end,
 
+		-- Listens to QUESTLINE_UPDATE, which the game sends when quest lines it was asked for are there.
+		-- Then the maps requested by _RequestQuestLinesForMap are scanned, and the shown map as well:
+		-- Blizzard's map requests its quest lines when it opens, so they often arrive only after the
+		-- scan that ran then (seen on the Isle of Quel'Danas, where the offers were missing that way).
+		-- The shown map is scanned at most once a second.
+		_EnsureQuestLineFrame = function(self)
+			if nil ~= self.questLineFrame then return end
+			if not (C_QuestLine and C_QuestLine.GetAvailableQuestLines) then return end
+			if C_EventUtils and C_EventUtils.IsEventValid and not C_EventUtils.IsEventValid("QUESTLINE_UPDATE") then return end
+			self.questLineFrame = CreateFrame("Frame")
+			self.questLineFrame:RegisterEvent("QUESTLINE_UPDATE")
+			self.questLineFrame:SetScript("OnEvent", function(_, _, requestRequired)
+				if requestRequired then return end
+				local pending = self.questLinePendingMaps or {}
+				self.questLinePendingMaps = {}
+				for mapID, hubID in pairs(pending) do
+					securecallfunction(function() self:_ScanMapQuestPins(mapID, hubID) end)
+				end
+				if WorldMapFrame and WorldMapFrame:IsShown() then
+					local mapID = WorldMapFrame:GetMapID()
+					local now = GetTime()
+					self.questLineShownScan = self.questLineShownScan or {}
+					if mapID and nil == pending[mapID] and now - (self.questLineShownScan[mapID] or -10) >= 1 then
+						self.questLineShownScan[mapID] = now
+						securecallfunction(function() self:_ScanMapQuestPins(mapID) end)
+					end
+				end
+			end)
+		end,
+
 		-- Asks the game to load the quest lines of a map that is not shown.  QUESTLINE_UPDATE tells
 		-- when they are there (Blizzard's map does the same for the shown map), and the map is
 		-- scanned again then.  At most one request per map every 30 seconds.
@@ -10005,18 +10036,7 @@ end
 			self.questLineRequests[uiMapID] = now
 			self.questLinePendingMaps = self.questLinePendingMaps or {}
 			self.questLinePendingMaps[uiMapID] = hubID or true
-			if nil == self.questLineFrame then
-				self.questLineFrame = CreateFrame("Frame")
-				self.questLineFrame:RegisterEvent("QUESTLINE_UPDATE")
-				self.questLineFrame:SetScript("OnEvent", function(_, _, requestRequired)
-					if requestRequired then return end
-					local pending = self.questLinePendingMaps
-					self.questLinePendingMaps = {}
-					for mapID, hubID in pairs(pending) do
-						securecallfunction(function() self:_ScanMapQuestPins(mapID, hubID) end)
-					end
-				end)
-			end
+			self:_EnsureQuestLineFrame()
 			C_QuestLine.RequestQuestLinesForMap(uiMapID)
 		end,
 
