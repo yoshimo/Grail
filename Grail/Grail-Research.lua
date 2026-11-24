@@ -12,7 +12,8 @@
 --		WARBAND_QUEST_COMPLETE	quests that became completed while this character was logged out
 --		GOSSIP_QUEST_LINK		the gossip option chosen right before such a quest completed
 --		BOOK_QUEST_LINK			the readable object opened right before such a quest completed
---		VIGNETTE_QUEST_LINK		a vignette that vanished right before such a quest completed
+--		VIGNETTE_QUEST_LINK		a vignette that vanished right before such a quest completed (late=N: it vanished
+--								N seconds after the quest was noticed)
 --		VIGNETTE_REP_LINK		a vignette that vanished together with a reputation change
 --		QUESTPIN				quest offers that appear or disappear on the map after accepting or turning in a quest
 --								(trigger=reset:daily/... or reset:weekly/... when a quest reset happened in between)
@@ -299,17 +300,18 @@ function R.OnVignettesUpdated()
 			R.goneVignettes[guid] = nil
 		end
 	end
-	local anyGone = false
+	local fresh = {}
 	for guid, entry in pairs(previous) do
 		if nil == current[guid] and nil ~= entry.id then
 			entry.time = now
 			entry.linked = {}
 			R.goneVignettes[guid] = entry
-			anyGone = true
+			tinsert(fresh, entry)
 		end
 	end
-	if anyGone then
+	if #fresh > 0 then
 		R.LinkReputation(now)
+		R.LinkWaiting(now, fresh)
 		R.RequestCheck("vignette")
 	end
 end
@@ -338,22 +340,58 @@ local function recentlyGone(now)
 	return list
 end
 
-function R.LinkVignettes(questId, now)
-	local gone = recentlyGone(now)
-	if 0 == #gone then return end
+--	One vanished vignette linked to one quest.  late is how many seconds the vignette
+--	vanished after the quest had been noticed (nil when it vanished first).
+local function linkVignette(vignette, questId, candidates, now, late)
 	local loot = R.lastLoot
 	if nil ~= loot and (now - loot.time) > R.linkWindow then loot = nil end
+	local entry = R.VignetteEntry(vignette)
+	entry.quests[questId] = (entry.quests[questId] or 0) + 1
+	local npcId = nil
+	if nil ~= loot and nil ~= loot.spawn and loot.spawn == vignette.spawn then
+		npcId = loot.npcId
+		entry.npcs[npcId] = (entry.npcs[npcId] or 0) + 1
+	end
+	--	candidates tells how many vignettes vanished at the same time; 1 is an unambiguous link
+	log(strformat("VIGNETTE_QUEST_LINK: vignetteId=%s name=%s | quest=%d | npcId=%s | coords=%s | candidates=%d%s",
+		tostring(vignette.id), tostring(vignette.name), questId, tostring(npcId), tostring(vignette.coords), candidates,
+		late and strformat(" | late=%.1f", late) or ""))
+end
+
+--	The quest comparison can run before the client removes the vignette of a looted
+--	object.  A quest found without a vanished vignette therefore waits for one for a
+--	short time (see LinkWaiting).
+function R.LinkVignettes(questId, now)
+	local gone = recentlyGone(now)
+	if 0 == #gone then
+		R.waitingQuests = R.waitingQuests or {}
+		R.waitingQuests[questId] = now
+		return
+	end
 	for _, vignette in ipairs(gone) do
-		local entry = R.VignetteEntry(vignette)
-		entry.quests[questId] = (entry.quests[questId] or 0) + 1
-		local npcId = nil
-		if nil ~= loot and nil ~= loot.spawn and loot.spawn == vignette.spawn then
-			npcId = loot.npcId
-			entry.npcs[npcId] = (entry.npcs[npcId] or 0) + 1
+		linkVignette(vignette, questId, #gone, now)
+	end
+end
+
+--	fresh are the vignettes that vanished with the update that is being handled.
+function R.LinkWaiting(now, fresh)
+	local waiting = R.waitingQuests
+	if nil == waiting then return end
+	local quests = {}
+	for questId, since in pairs(waiting) do
+		if (now - since) > R.linkWindow then
+			waiting[questId] = nil
+		else
+			tinsert(quests, questId)
 		end
-		--	candidates tells how many vignettes vanished at the same time; 1 is an unambiguous link
-		log(strformat("VIGNETTE_QUEST_LINK: vignetteId=%s name=%s | quest=%d | npcId=%s | coords=%s | candidates=%d",
-			tostring(vignette.id), tostring(vignette.name), questId, tostring(npcId), tostring(vignette.coords), #gone))
+	end
+	table.sort(quests)
+	for _, questId in ipairs(quests) do
+		local late = now - waiting[questId]
+		waiting[questId] = nil
+		for _, vignette in ipairs(fresh) do
+			linkVignette(vignette, questId, #fresh, now, late)
+		end
 	end
 end
 
@@ -676,6 +714,7 @@ function R.Disable()
 	R.lastLoot = nil
 	R.vignettes = nil
 	R.goneVignettes = nil
+	R.waitingQuests = nil
 	R.recentReputation = nil
 	R.turnedIn = nil
 	R.wantLoginDifference = false
